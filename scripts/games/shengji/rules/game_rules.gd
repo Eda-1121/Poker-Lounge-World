@@ -2,7 +2,7 @@
 extends RefCounted
 class_name GameRules
 
-const ShengjiCardLogic = preload("res://scripts/shengji/shengji_card_logic.gd")
+const ShengjiCardLogic = preload("res://scripts/games/shengji/rules/shengji_card_logic.gd")
 
 enum CardPattern {
 	INVALID,      # Invalidpattern

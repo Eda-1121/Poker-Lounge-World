@@ -5,10 +5,11 @@ AIがこのプロジェクトを修正・更新するときの標準手順です
 ## Before Editing
 
 1. `git status --short` を確認し、既存の未コミット変更を把握する。
-2. 依頼内容に関係するファイルを `rg` と `sed` で読む。
-3. `docs/PROJECT_RULES.md` と `docs/ARCHITECTURE.md` に反する変更にならないか確認する。
-4. 変更対象、影響範囲、検証方法を短く整理する。
-5. 既存コードやアセットを削除・移動する必要がある場合は、ユーザーの意図を確認する。
+2. `docs/AI_EDITING_MAP.md` で依頼内容に対応する編集領域を決める。
+3. 依頼内容に関係するファイルを `rg` と `sed` で読む。
+4. `docs/PROJECT_RULES.md`、`docs/ARCHITECTURE.md`、`docs/FOLDER_STRUCTURE.md` に反する変更にならないか確認する。
+5. 変更対象、影響範囲、検証方法を短く整理する。
+6. 既存コードやアセットを削除・移動する必要がある場合は、ユーザーの意図を確認する。
 
 ## Editing Rules
 
@@ -39,8 +40,8 @@ AIがこのプロジェクトを修正・更新するときの標準手順です
 
 ### Game Rule Change
 
-1. `scripts/shengji/game_rules.gd` を先に読む。
-2. `scripts/shengji/game_manager.gd` の呼び出し側を確認する。
+1. `scripts/games/shengji/rules/game_rules.gd` を先に読む。
+2. `scripts/games/shengji/flow/game_manager.gd` の呼び出し側を確認する。
 3. 既存の enum と helper を使う。
 4. 代表的なカード組み合わせを手動またはスクリプトで検証する。
 5. 変更したルールの制限事項を報告する。
@@ -99,4 +100,3 @@ AIへ依頼するときは、できるだけこの形式を使う。
 
 ## 検証したい内容
 ```
-

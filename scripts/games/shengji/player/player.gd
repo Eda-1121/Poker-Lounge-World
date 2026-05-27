@@ -2,7 +2,7 @@
 extends Node2D
 class_name Player
 
-const ShengjiCardLogic = preload("res://scripts/shengji/shengji_card_logic.gd")
+const ShengjiCardLogic = preload("res://scripts/games/shengji/rules/shengji_card_logic.gd")
 
 signal cards_played(cards: Array[Card])
 signal card_selected(card: Card)

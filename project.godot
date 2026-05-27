@@ -21,8 +21,8 @@ config/icon="res://icon.svg"
 
 [autoload]
 
-GameConfig="*res://scripts/game_config.gd"
-SoundManager="*res://scripts/common/sound_manager.gd"
+GameConfig="*res://scripts/app/game_config.gd"
+SoundManager="*res://scripts/common/audio/sound_manager.gd"
 
 [display]
 

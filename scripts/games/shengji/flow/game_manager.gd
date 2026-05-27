@@ -1,8 +1,11 @@
 # game_manager.gd - Shengji game manager
 extends Node
 
-const ShengjiCardLogic = preload("res://scripts/shengji/shengji_card_logic.gd")
-const ShengjiTableLayout = preload("res://scripts/shengji/shengji_table_layout.gd")
+const ShengjiCardLogic = preload("res://scripts/games/shengji/rules/shengji_card_logic.gd")
+const ShengjiAiLogic = preload("res://scripts/games/shengji/ai/shengji_ai_logic.gd")
+const ShengjiBiddingRules = preload("res://scripts/games/shengji/rules/shengji_bidding_rules.gd")
+const ShengjiScoring = preload("res://scripts/games/shengji/rules/shengji_scoring.gd")
+const ShengjiTableLayout = preload("res://scripts/games/shengji/table/shengji_table_layout.gd")
 
 enum GamePhase { DEALING_AND_BIDDING, BURYING, PLAYING, SCORING }
 
@@ -460,26 +463,7 @@ func _on_player_bid_passed():
 	bid_decision_made = true
 
 func can_make_bid(player: Player, suit: Card.Suit, count: int) -> bool:
-	"""
-	rules：
-	"""
-	if current_bid["count"] == 0:
-		return count >= 1
-
-	# If there is already a bid, counter-bidding requires more level cards.
-	if player.team == current_bid["team"]:
-		if suit == current_bid["suit"] and count > current_bid["count"]:
-			return true
-
-	if player.team != current_bid["team"]:
-		if count > current_bid["count"]:
-			return true
-
-	# 3. No-trump special rule: Small Joker = one no-trump card, Big Joker = two no-trump cards.
-	if suit == Card.Suit.JOKER:
-		return count > current_bid["count"]
-
-	return false
+	return ShengjiBiddingRules.can_make_bid(player.team, suit, count, current_bid)
 
 func make_bid(player: Player, suit: Card.Suit, count: int):
 	current_bid = {
@@ -1285,181 +1269,52 @@ func append_ai_follow_candidate(candidates: Array, cards: Array, hand: Array[Car
 	append_unique_candidate(candidates, typed_cards)
 
 func normalize_card_list(cards: Array) -> Array[Card]:
-	var typed_cards: Array[Card] = []
-	for card in cards:
-		if card is Card and not typed_cards.has(card):
-			typed_cards.append(card)
-	return typed_cards
+	return ShengjiAiLogic.normalize_card_list(cards)
 
 func append_unique_candidate(candidates: Array, cards: Array[Card]):
-	for candidate in candidates:
-		if has_same_cards(candidate, cards):
-			return
-	candidates.append(cards)
+	ShengjiAiLogic.append_unique_candidate(candidates, cards)
 
 func has_same_cards(cards_a: Array, cards_b: Array) -> bool:
-	if cards_a.size() != cards_b.size():
-		return false
-	for card in cards_a:
-		if not cards_b.has(card):
-			return false
-	return true
+	return ShengjiAiLogic.has_same_cards(cards_a, cards_b)
 
 func get_same_suit_cards_for_lead(hand: Array[Card], lead_pattern: GameRules.PlayPattern) -> Array[Card]:
-	var same_suit_cards: Array[Card] = []
-	var lead_card = lead_pattern.cards[0]
-	ShengjiCardLogic.apply_trump(lead_card, trump_suit, current_level)
-
-	for card in hand:
-		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
-		if lead_card.is_trump:
-			if card.is_trump:
-				same_suit_cards.append(card)
-		elif not card.is_trump and card.suit == lead_card.suit:
-			same_suit_cards.append(card)
-
-	return same_suit_cards
+	return ShengjiAiLogic.get_same_suit_cards_for_lead(hand, lead_pattern, trump_suit, current_level)
 
 func sort_cards_by_strength(cards: Array, ascending: bool) -> Array:
-	var sorted_cards = cards.duplicate()
-	for card in sorted_cards:
-		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
-
-	sorted_cards.sort_custom(func(a, b):
-		var result = ShengjiCardLogic.compare_cards(a, b, trump_suit, current_level)
-		if result == 0:
-			if a.suit != b.suit:
-				return a.suit < b.suit if ascending else a.suit > b.suit
-			return a.rank < b.rank if ascending else a.rank > b.rank
-		return result < 0 if ascending else result > 0
-	)
-	return sorted_cards
+	return ShengjiAiLogic.sort_cards_by_strength(cards, ascending, trump_suit, current_level)
 
 func sort_candidate_list_by_cost(candidates: Array):
-	candidates.sort_custom(func(a, b):
-		return get_ai_play_cost(a) < get_ai_play_cost(b)
-	)
+	ShengjiAiLogic.sort_candidate_list_by_cost(candidates, trump_suit, current_level)
 
 func take_low_cards(cards: Array, count: int) -> Array:
-	if count <= 0:
-		return []
-	return sort_cards_by_strength(cards, true).slice(0, min(count, cards.size()))
+	return ShengjiAiLogic.take_low_cards(cards, count, trump_suit, current_level)
 
 func take_high_cards(cards: Array, count: int) -> Array:
-	if count <= 0:
-		return []
-	return sort_cards_by_strength(cards, false).slice(0, min(count, cards.size()))
+	return ShengjiAiLogic.take_high_cards(cards, count, trump_suit, current_level)
 
 func take_point_heavy_cards(cards: Array, count: int) -> Array:
-	if count <= 0:
-		return []
-
-	var sorted_cards = cards.duplicate()
-	sorted_cards.sort_custom(func(a, b):
-		if a.points != b.points:
-			return a.points > b.points
-		return get_ai_card_cost(a) < get_ai_card_cost(b)
-	)
-	return sorted_cards.slice(0, min(count, sorted_cards.size()))
+	return ShengjiAiLogic.take_point_heavy_cards(cards, count, trump_suit, current_level)
 
 func get_cards_except(cards: Array[Card], excluded: Array) -> Array[Card]:
-	var result: Array[Card] = []
-	for card in cards:
-		if not excluded.has(card):
-			result.append(card)
-	return result
+	return ShengjiAiLogic.get_cards_except(cards, excluded)
 
 func build_pair_preferred_candidate(cards: Array[Card], needed: int) -> Array:
-	var result = []
-	var pairs = GameRules.find_pairs_in_cards(cards)
-	sort_candidate_list_by_cost(pairs)
-
-	for pair in pairs:
-		if result.size() + pair.size() <= needed:
-			result.append_array(pair)
-		if result.size() >= needed:
-			return result.slice(0, needed)
-
-	for card in sort_cards_by_strength(cards, true):
-		if not result.has(card):
-			result.append(card)
-		if result.size() >= needed:
-			break
-
-	return result
+	return ShengjiAiLogic.build_pair_preferred_candidate(cards, needed, trump_suit, current_level)
 
 func score_ai_lead_candidate(cards: Array, ai_player_id: int = 0) -> float:
-	var pattern = GameRules.identify_pattern(normalize_card_list(cards), trump_suit, current_level)
-	var score = get_ai_play_cost(cards)
-	score += float(GameRules.calculate_points(cards)) * 2.2
-	score -= float(cards.size() - 1) * 4.0
-
-	if is_all_trump_cards(cards):
-		score += 35.0
-	else:
-		score -= 12.0
-
-	match pattern.pattern_type:
-		GameRules.CardPattern.PAIR:
-			score -= 8.0
-		GameRules.CardPattern.TRACTOR:
-			score -= 16.0
-
-	if not cards.is_empty() and cards[0] is Card:
-		var lead_c: Card = cards[0]
-		ShengjiCardLogic.apply_trump(lead_c, trump_suit, current_level)
-		var void_key = VOID_TRUMP if lead_c.is_trump else lead_c.suit
-		if _any_opponent_void(ai_player_id, void_key):
-			score += 22.0
-
-	return score
+	return ShengjiAiLogic.score_lead_candidate(cards, ai_player_id, trump_suit, current_level, _any_opponent_void)
 
 func score_ai_follow_candidate(cards: Array, teammate_winning: bool, has_winning_candidate: bool, can_beat: bool, trick_points: int) -> float:
-	var cost = get_ai_play_cost(cards)
-	var points = float(GameRules.calculate_points(cards))
-
-	if teammate_winning:
-		var score = cost - points * 6.0
-		if can_beat:
-			score += 140.0 + cost
-		return score
-
-	if has_winning_candidate:
-		if can_beat:
-			return cost - float(trick_points) * 3.0 - points * 1.5
-		return 10000.0 + cost + points * 5.0
-
-	return cost + points * 5.0
+	return ShengjiAiLogic.score_follow_candidate(cards, teammate_winning, has_winning_candidate, can_beat, trick_points, trump_suit, current_level)
 
 func get_ai_card_cost(card: Card) -> float:
-	ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
-	var cost = float(card.rank)
-
-	if card.suit == Card.Suit.JOKER:
-		cost += 55.0
-	elif card.rank == current_level:
-		cost += 30.0
-	elif card.is_trump:
-		cost += 18.0
-
-	cost += float(card.points) * 0.8
-	return cost
+	return ShengjiAiLogic.get_card_cost(card, trump_suit, current_level)
 
 func get_ai_play_cost(cards: Array) -> float:
-	var cost = 0.0
-	for card in cards:
-		if card is Card:
-			cost += get_ai_card_cost(card)
-	return cost
+	return ShengjiAiLogic.get_play_cost(cards, trump_suit, current_level)
 
 func is_all_trump_cards(cards: Array) -> bool:
-	if cards.is_empty():
-		return false
-	for card in cards:
-		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
-		if not card.is_trump:
-			return false
-	return true
+	return ShengjiAiLogic.is_all_trump_cards(cards, trump_suit, current_level)
 
 func get_current_winning_play() -> Dictionary:
 	if current_trick.is_empty():
@@ -1616,21 +1471,7 @@ func _any_opponent_void(ai_player_id: int, suit_key) -> bool:
 	return false
 
 func calculate_bottom_multiplier(winning_play: Dictionary) -> int:
-	var small_joker_count = 0
-	var big_joker_count = 0
-	for card in winning_play.get("cards", []):
-		if card.suit == Card.Suit.JOKER:
-			if card.rank == Card.Rank.BIG_JOKER:
-				big_joker_count += 1
-			else:
-				small_joker_count += 1
-	if big_joker_count >= 2 and small_joker_count >= 2:
-		return 16
-	if big_joker_count >= 2:
-		return 8
-	if small_joker_count >= 2:
-		return 4
-	return 2
+	return ShengjiScoring.calculate_bottom_multiplier(winning_play)
 
 func end_round():
 	"""End this round and calculate level changes."""
@@ -1644,68 +1485,19 @@ func end_round():
 	print("Dealer team: Team ", dealer_team + 1, " score: ", team_scores[dealer_team])
 	print("Opponent team: Team ", attacker_team + 1, " score: ", attacker_score)
 
-	var levels_to_advance = 0
-	var winning_team = -1
+	var result = ShengjiScoring.get_round_result(dealer_team, attacker_score)
+	var levels_to_advance: int = result["levels"]
+	var winning_team: int = result["winning_team"]
 
-	# Standard level-change rules based on attacker score:
-	# Attacker 0 points: dealer team +3 levels
-	# Attacker 1-39 points: dealer team +2 levels
-	# Attacker 40-79 points: dealer team +1 level
-	# Attacker 80-119 points: attacker team +1 level and dealer rotates
-	# Attacker 120-159 points: attacker team +2 levels
-	# Attacker 160-199 points: attacker team +3 levels
-	# Attacker 200+ points: attacker team +4 levels
+	team_levels[winning_team] += levels_to_advance
+	if result["dealer_rotates"]:
+		dealer_index = (dealer_index + 1) % 4
 
-	if attacker_score >= 200:
-		levels_to_advance = 4
-		winning_team = attacker_team
-		team_levels[attacker_team] += levels_to_advance
-		dealer_index = (dealer_index + 1) % 4
-		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("team_dominates_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
-	elif attacker_score >= 160:
-		levels_to_advance = 3
-		winning_team = attacker_team
-		team_levels[attacker_team] += levels_to_advance
-		dealer_index = (dealer_index + 1) % 4
-		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("team_wins_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
-	elif attacker_score >= 120:
-		levels_to_advance = 2
-		winning_team = attacker_team
-		team_levels[attacker_team] += levels_to_advance
-		dealer_index = (dealer_index + 1) % 4
-		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("team_wins_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
-	elif attacker_score >= 80:
-		# 80+ points means the attacker team wins and the dealer rotates.
-		levels_to_advance = 1
-		winning_team = attacker_team
-		team_levels[attacker_team] += levels_to_advance
-		dealer_index = (dealer_index + 1) % 4
-		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("team_wins_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
-	elif attacker_score >= 40:
-		# Dealer team holds and gains 1 level.
-		levels_to_advance = 1
-		winning_team = dealer_team
-		team_levels[dealer_team] += levels_to_advance
-		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("team_holds_levels") % [get_team_name(dealer_team), levels_to_advance], 3.0)
-	elif attacker_score >= 1:
-		# Dealer team holds and gains 2 levels.
-		levels_to_advance = 2
-		winning_team = dealer_team
-		team_levels[dealer_team] += levels_to_advance
-		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("team_holds_levels") % [get_team_name(dealer_team), levels_to_advance], 3.0)
-	else:
-		# Attacker 0 points means a dominant dealer-team win, +3 levels.
-		levels_to_advance = 3
-		winning_team = dealer_team
-		team_levels[dealer_team] += levels_to_advance
-		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("team_dominates_levels") % [get_team_name(dealer_team), levels_to_advance], 3.0)
+	if ui_manager:
+		var message_key = "team_dominates_levels" if result["dominant"] else "team_wins_levels"
+		if winning_team == dealer_team and not result["dominant"]:
+			message_key = "team_holds_levels"
+		ui_manager.show_center_message(GameConfig.text(message_key) % [get_team_name(winning_team), levels_to_advance], 3.0)
 
 	print("Winning team: Team ", winning_team + 1, " level increase: ", levels_to_advance)
 	print("Current levels - Team 1: ", team_levels[0], " Team 2: ", team_levels[1])
@@ -1723,14 +1515,11 @@ func end_round():
 
 func check_game_over() -> bool:
 	"""Check whether the game is over."""
-	# A = 14
-	if team_levels[0] >= 14 or team_levels[1] >= 14:
-		return true
-	return false
+	return ShengjiScoring.is_game_over(team_levels)
 
 func show_game_over_screen():
 	"""Show the game over screen."""
-	var winner_team = 0 if team_levels[0] >= 14 else 1
+	var winner_team = ShengjiScoring.get_winner_team(team_levels)
 	
 	if ui_manager and ui_manager.has_node("GameOverUI"):
 		var game_over_ui = ui_manager.get_node("GameOverUI")

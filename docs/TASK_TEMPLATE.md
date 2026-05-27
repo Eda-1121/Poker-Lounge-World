@@ -14,8 +14,8 @@ AIへ作業を依頼するときは、このテンプレートを使うと精度
 ## 変更してよい範囲
 
 例:
-- scripts/shengji/player.gd
-- scripts/common/card.gd
+- scripts/games/shengji/player/player.gd
+- scripts/common/cards/card.gd
 
 ## 変更してほしくない範囲
 
@@ -48,8 +48,8 @@ Shengji の入札メッセージを日本語でも自然にしたい。
 入札中、現在の入札、パスの表示が3言語で正しく出る。
 
 ## 変更してよい範囲
-- scripts/game_config.gd
-- scripts/shengji/bidding_ui.gd
+- scripts/app/game_config.gd
+- scripts/games/shengji/ui/bidding_ui.gd
 
 ## 変更してほしくない範囲
 - ゲームルール

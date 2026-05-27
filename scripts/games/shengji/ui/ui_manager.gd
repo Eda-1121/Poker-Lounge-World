@@ -267,14 +267,14 @@ func create_ui():
 	create_player_avatars()
 
 func create_phase2_ui():
-	var BiddingUIScript = load("res://scripts/shengji/bidding_ui.gd")
+	var BiddingUIScript = load("res://scripts/games/shengji/ui/bidding_ui.gd")
 	if BiddingUIScript:
 		bidding_ui = Control.new()
 		bidding_ui.name = "BiddingUI"
 		bidding_ui.set_script(BiddingUIScript)
 		add_child(bidding_ui)
 
-	var GameOverUIScript = load("res://scripts/shengji/game_over_ui.gd")
+	var GameOverUIScript = load("res://scripts/games/shengji/ui/game_over_ui.gd")
 	if GameOverUIScript:
 		game_over_ui = Control.new()
 		game_over_ui.name = "GameOverUI"

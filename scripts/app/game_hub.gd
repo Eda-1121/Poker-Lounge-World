@@ -1,8 +1,8 @@
 # game_hub.gd - ゲーム選択ハブ（モダンカードUI）
 extends Control
 
-const HelpScreenScene = preload("res://scripts/help_screen.gd")
-const SettingsScreenScene = preload("res://scripts/settings_screen.gd")
+const HelpScreenScene = preload("res://scripts/app/help_screen.gd")
+const SettingsScreenScene = preload("res://scripts/app/settings_screen.gd")
 
 const GAMES = [
 	{
