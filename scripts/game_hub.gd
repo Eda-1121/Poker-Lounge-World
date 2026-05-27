@@ -1,11 +1,14 @@
 # game_hub.gd - ゲーム選択ハブ（モダンカードUI）
 extends Control
 
+const HelpScreenScene = preload("res://scripts/help_screen.gd")
+const SettingsScreenScene = preload("res://scripts/settings_screen.gd")
+
 const GAMES = [
 	{
-		"name": "升级 / 拖拉機",
-		"name_sub": "Shengji · 昇級",
-		"desc": "4人・2チーム制\n中国式トリックテイキング",
+		"name_key": "game_shengji_name",
+		"sub_key": "game_shengji_sub",
+		"desc_key": "game_shengji_desc",
 		"icon": "♠♥",
 		"bg":     Color(0.102, 0.173, 0.102),
 		"accent": Color(0.941, 0.788, 0.416),
@@ -15,9 +18,9 @@ const GAMES = [
 		"deck_options": [2, 4],
 	},
 	{
-		"name": "Hearts",
-		"name_sub": "ハーツ",
-		"desc": "4人・個人戦\nハートと♠Qを避けろ",
+		"name_key": "game_hearts_name",
+		"sub_key": "game_hearts_sub",
+		"desc_key": "game_hearts_desc",
 		"icon": "♥",
 		"mini_cards": "♥  ♠Q  ♥",
 		"bg":     Color(0.086, 0.129, 0.196),
@@ -26,9 +29,9 @@ const GAMES = [
 		"available": false,
 	},
 	{
-		"name": "Bridge",
-		"name_sub": "ブリッジ",
-		"desc": "4人・2チーム制\nビッドしてトリックを取れ",
+		"name_key": "game_bridge_name",
+		"sub_key": "game_bridge_sub",
+		"desc_key": "game_bridge_desc",
 		"icon": "♠♣",
 		"mini_cards": "1♠  2♣  3NT",
 		"bg":     Color(0.086, 0.129, 0.196),
@@ -37,9 +40,9 @@ const GAMES = [
 		"available": false,
 	},
 	{
-		"name": "Poker",
-		"name_sub": "テキサスホールデム",
-		"desc": "2〜9人・個人戦\nブラフと戦略で勝利",
+		"name_key": "game_poker_name",
+		"sub_key": "game_poker_sub",
+		"desc_key": "game_poker_desc",
 		"icon": "♦",
 		"mini_cards": "A♦  K♠  Q♥",
 		"bg":     Color(0.086, 0.129, 0.196),
@@ -65,8 +68,19 @@ func _sf(s: float) -> int:
 	return max(9, int(s * _pws))
 
 func _ready():
+	var window_size = get_target_window_size()
+	get_window().size = window_size
+	get_window().min_size = window_size
+	center_window(window_size)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not GameConfig.language_changed.is_connected(_on_language_changed):
+		GameConfig.language_changed.connect(_on_language_changed)
+	_build()
+
+func _build():
+	for child in get_children():
+		child.queue_free()
 
 	var vp = get_viewport_rect().size
 	_sw = vp.x
@@ -96,7 +110,7 @@ func _build_header():
 	var hs = _sh / 720.0
 
 	var title = Label.new()
-	title.text = "世界のカードゲーム"
+	title.text = GameConfig.text("app_title")
 	title.position = Vector2(0, int(14 * hs))
 	title.size = Vector2(_sw, int(40 * hs))
 	title.add_theme_font_size_override("font_size", max(22, int(30 * hs)))
@@ -106,7 +120,7 @@ func _build_header():
 	add_child(title)
 
 	var sub = Label.new()
-	sub.text = "World Card Games"
+	sub.text = GameConfig.text("app_title")
 	sub.position = Vector2(0, int(56 * hs))
 	sub.size = Vector2(_sw, int(22 * hs))
 	sub.add_theme_font_size_override("font_size", max(11, int(13 * hs)))
@@ -132,9 +146,9 @@ func _build_score_bar():
 		win_rate_str = "%d%%" % int(float(wins_count) / float(total_plays) * 100)
 
 	var items = [
-		[str(total_plays), "総プレイ"],
-		[str(wins_count),  "勝利"],
-		[win_rate_str,     "勝率"],
+		[str(total_plays), GameConfig.text("plays")],
+		[str(wins_count),  GameConfig.text("wins")],
+		[win_rate_str,     GameConfig.text("win_rate")],
 	]
 
 	var bar_w   = int(_sw * 0.32)
@@ -201,7 +215,7 @@ func _build_panel(g: Dictionary, px: float):
 
 	# ゲーム名
 	var name_lbl = Label.new()
-	name_lbl.text = g["name"]
+	name_lbl.text = GameConfig.text(g["name_key"])
 	name_lbl.position = Vector2(int(12 * _pws), _sy(52))
 	name_lbl.size = Vector2(_pw - int(24 * _pws), _sy(26))
 	name_lbl.add_theme_font_size_override("font_size", _sf(15))
@@ -211,7 +225,7 @@ func _build_panel(g: Dictionary, px: float):
 
 	# サブタイトル
 	var sub_lbl = Label.new()
-	sub_lbl.text = g["name_sub"]
+	sub_lbl.text = GameConfig.text(g["sub_key"])
 	sub_lbl.position = Vector2(int(12 * _pws), _sy(78))
 	sub_lbl.size = Vector2(_pw - int(24 * _pws), _sy(18))
 	sub_lbl.add_theme_font_size_override("font_size", _sf(11))
@@ -228,7 +242,7 @@ func _build_panel(g: Dictionary, px: float):
 
 	# 説明文
 	var desc_lbl = Label.new()
-	desc_lbl.text = g["desc"]
+	desc_lbl.text = GameConfig.text(g["desc_key"])
 	desc_lbl.position = Vector2(int(12 * _pws), _sy(110))
 	desc_lbl.size = Vector2(_pw - int(24 * _pws), _sy(56))
 	desc_lbl.add_theme_font_size_override("font_size", _sf(11))
@@ -253,7 +267,7 @@ func _build_panel(g: Dictionary, px: float):
 			btn_y = _ph - bottom_pad - btn_h
 
 		var play_btn = Button.new()
-		play_btn.text = "▶  プレイ"
+		play_btn.text = "▶  %s" % GameConfig.text("play_game")
 		play_btn.position = Vector2(int(12 * _pws), btn_y)
 		play_btn.size = Vector2(_pw - int(24 * _pws), btn_h)
 		play_btn.add_theme_font_size_override("font_size", _sf(15))
@@ -276,7 +290,7 @@ func _build_panel(g: Dictionary, px: float):
 
 		if g.get("has_help", false):
 			var help_btn = Button.new()
-			help_btn.text = "遊び方・ルール"
+			help_btn.text = GameConfig.text("how_to_play")
 			help_btn.position = Vector2(int(12 * _pws), _ph - bottom_pad - link_h)
 			help_btn.size = Vector2(_pw - int(24 * _pws), link_h)
 			help_btn.add_theme_font_size_override("font_size", _sf(11))
@@ -303,7 +317,7 @@ func _build_panel(g: Dictionary, px: float):
 		var badge_w = int(82 * _pws)
 		var badge_h = _sy(22)
 		var badge = Button.new()
-		badge.text = "準備中"
+		badge.text = GameConfig.text("coming_soon")
 		badge.position = Vector2(int((_pw - badge_w) / 2), _ph - bottom_pad - badge_h)
 		badge.size = Vector2(badge_w, badge_h)
 		badge.disabled = true
@@ -371,9 +385,9 @@ func _build_footer():
 	var bx      = int((_sw - total_w) / 2)
 	var by      = int(_py + _ph + (_sh - _py - _ph) * 0.42)
 
-	_add_footer_button("設　　定",   Vector2(bx, by),                   btn_w, btn_h,
+	_add_footer_button(GameConfig.text("settings"), Vector2(bx, by), btn_w, btn_h,
 		Color(0.40, 0.70, 1.00), _on_settings_pressed)
-	_add_footer_button("ゲーム終了", Vector2(bx + btn_w + btn_gap, by),  btn_w, btn_h,
+	_add_footer_button(GameConfig.text("quit"), Vector2(bx + btn_w + btn_gap, by), btn_w, btn_h,
 		Color(1.00, 0.40, 0.50), _on_quit_pressed)
 
 func _add_footer_button(text: String, pos: Vector2, w: int, h: int, accent: Color, callback: Callable):
@@ -402,13 +416,19 @@ func _on_play_pressed(scene_path: String):
 
 func _on_help_pressed():
 	SoundManager.play_card_click()
-	var help = HelpScreen.new()
+	var help = HelpScreenScene.new()
 	add_child(help)
 
 func _on_settings_pressed():
 	SoundManager.play_card_click()
-	var settings = SettingsScreen.new()
+	var settings = SettingsScreenScene.new()
+	settings.closed.connect(_build)
 	add_child(settings)
+
+func _on_language_changed(_language: String):
+	if get_children().any(func(child): return child is SettingsScreen):
+		return
+	_build()
 
 func _on_quit_pressed():
 	SoundManager.play_card_click()
@@ -417,3 +437,16 @@ func _on_quit_pressed():
 func _input(event):
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		get_tree().quit()
+
+func get_target_window_size() -> Vector2i:
+	var screen = DisplayServer.window_get_current_screen()
+	var usable_rect = DisplayServer.screen_get_usable_rect(screen)
+	return Vector2i(
+		max(1280, int(float(usable_rect.size.x) * 0.8)),
+		max(720, int(float(usable_rect.size.y) * 0.8))
+	)
+
+func center_window(window_size: Vector2i):
+	var screen = DisplayServer.window_get_current_screen()
+	var usable_rect = DisplayServer.screen_get_usable_rect(screen)
+	get_window().position = usable_rect.position + (usable_rect.size - window_size) / 2

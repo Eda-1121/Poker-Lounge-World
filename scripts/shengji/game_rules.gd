@@ -1,17 +1,17 @@
-# game_rules.gd - 改进版游戏规则管理器
+# game_rules.gd - Shengji rules
 extends RefCounted
 class_name GameRules
 
-# 牌型枚举
+const ShengjiCardLogic = preload("res://scripts/shengji/shengji_card_logic.gd")
+
 enum CardPattern {
-	INVALID,      # 无效牌型
-	SINGLE,       # 单张
-	PAIR,         # 对子
-	TRACTOR,      # 拖拉机（连对）
-	THROW         # 甩牌（多个单张或对子，但不同点数）
+	INVALID,      # Invalidpattern
+	SINGLE,       # Single
+	PAIR,         # Pair
+	TRACTOR,
+	THROW
 }
 
-# 牌型结构
 class PlayPattern:
 	var pattern_type: CardPattern
 	var cards: Array[Card]
@@ -30,22 +30,20 @@ class PlayPattern:
 		length = cards.size()
 
 # ============================================
-# 牌型识别
 # ============================================
 
 static func identify_pattern(cards: Array[Card], trump_suit: Card.Suit, current_rank: int) -> PlayPattern:
-	"""识别牌型"""
+	"""Identify the card pattern."""
 	if cards.is_empty():
 		return PlayPattern.new(CardPattern.INVALID, [])
 	
-	# 更新所有牌的主牌状态
 	for card in cards:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 	
 	var sorted_cards = cards.duplicate()
 	sorted_cards.sort_custom(func(a, b):
 		if a.is_trump != b.is_trump:
-			return a.is_trump  # 主牌を前に
+			return a.is_trump
 		if a.is_trump:
 			return _get_trump_order(a, trump_suit, current_rank) < _get_trump_order(b, trump_suit, current_rank)
 		if a.suit != b.suit:
@@ -53,38 +51,33 @@ static func identify_pattern(cards: Array[Card], trump_suit: Card.Suit, current_
 		return a.rank < b.rank
 	)
 	
-	# 单张
+	# Single
 	if sorted_cards.size() == 1:
 		return PlayPattern.new(CardPattern.SINGLE, sorted_cards)
 	
-	# 对子
+	# Pair
 	if sorted_cards.size() == 2:
-		# 两副牌玩法中的对子必须是完全相同的两张牌
+		# In multi-deck play, a pair must be two identical cards.
 		if sorted_cards[0].rank == sorted_cards[1].rank and sorted_cards[0].suit == sorted_cards[1].suit:
 			return PlayPattern.new(CardPattern.PAIR, sorted_cards)
 		else:
 			return PlayPattern.new(CardPattern.THROW, sorted_cards)
 	
-	# 拖拉机或甩牌
 	if sorted_cards.size() >= 4:
 		var tractor = check_tractor(sorted_cards, trump_suit, current_rank)
 		if tractor != null:
 			return tractor
 	
-	# 甩牌
+	# Throw
 	return PlayPattern.new(CardPattern.THROW, sorted_cards)
 
 static func _get_trump_order(card: Card, trump_suit: Card.Suit, current_rank: int) -> int:
-	# ジョーカー: 最強（小王16 < 大王17）
 	if card.suit == Card.Suit.JOKER:
 		return 1000 + card.rank
-	# 主花色レベル牌
 	if card.rank == current_rank and card.suit == trump_suit:
 		return 900
-	# 非主花色レベル牌（花色順）
 	if card.rank == current_rank:
 		return 800 + int(card.suit)
-	# 通常の主花色牌（2〜A）
 	return card.rank
 
 static func _are_ranks_adjacent(rank1: int, rank2: int, current_rank: int, is_trump: bool) -> bool:
@@ -92,7 +85,6 @@ static func _are_ranks_adjacent(rank1: int, rank2: int, current_rank: int, is_tr
 	var high = max(rank1, rank2)
 	if high - low == 1:
 		return true
-	# 主牌の場合、级别牌が間に挟まる2つの牌は隣接とみなす (例: レベル10なら9と11は隣接)
 	if is_trump and high - low == 2 and current_rank == low + 1:
 		return true
 	return false
@@ -102,7 +94,7 @@ static func check_tractor(sorted_cards: Array[Card], trump_suit: Card.Suit, curr
 		return null
 
 	for card in sorted_cards:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 
 	var pairs = []
 	for i in range(0, sorted_cards.size(), 2):
@@ -133,7 +125,6 @@ static func check_tractor(sorted_cards: Array[Card], trump_suit: Card.Suit, curr
 		if not curr_pair["is_trump"] and curr_pair["suit"] != next_pair["suit"]:
 			return null
 
-		# 级别牌は通常の連続順から除外されるため、隣接判定はスキップして別途チェック
 		if curr_pair["rank"] == current_rank or next_pair["rank"] == current_rank:
 			return null
 
@@ -143,23 +134,20 @@ static func check_tractor(sorted_cards: Array[Card], trump_suit: Card.Suit, curr
 	return PlayPattern.new(CardPattern.TRACTOR, sorted_cards)
 
 # ============================================
-# 跟牌规则
+# Follow suitrules
 # ============================================
 
 static func can_follow(follow_pattern: PlayPattern, lead_pattern: PlayPattern, hand: Array[Card], trump_suit: Card.Suit, current_rank: int) -> bool:
-	"""检查跟牌是否合法"""
-	# 牌数必须相同
+	"""Check whether the follow play is legal."""
 	if follow_pattern.length != lead_pattern.length:
 		return false
 	
-	# 更新手牌的主牌状态
 	for card in hand:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 	
 	var lead_is_trump = lead_pattern.cards[0].is_trump
 	var lead_suit = lead_pattern.cards[0].suit
 	
-	# 找出同花色的牌
 	var same_suit_cards: Array[Card] = []
 	for card in hand:
 		if lead_is_trump:
@@ -169,32 +157,22 @@ static func can_follow(follow_pattern: PlayPattern, lead_pattern: PlayPattern, h
 			if not card.is_trump and card.suit == lead_suit:
 				same_suit_cards.append(card)
 	
-	# 如果没有同花色，可以出任意牌
 	if same_suit_cards.is_empty():
 		return true
 	
-	# 根据首家牌型要求跟牌
 	match lead_pattern.pattern_type:
 		CardPattern.SINGLE:
-			# 跟单张：必须出同花色
 			return is_same_suit_as_lead(follow_pattern.cards[0], lead_pattern.cards[0], trump_suit, current_rank)
 		
 		CardPattern.PAIR:
-			# 跟对子规则：
-			# 1. 有同花色对子，必须出同花色对子
-			# 2. 没有同花色对子，但有2张或更多同花色，必须出2张同花色
-			# 3. 只有1张同花色，必须出这1张同花色 + 1张其它花色
-			# 4. 没有同花色，可以出任意2张（不需要相同花色）
+			# followPairrules：
 
 			var pairs = find_pairs_in_cards(same_suit_cards)
 			if pairs.size() > 0:
-				# 情况1：有同花色对子，必须出同花色对子
 				return follow_pattern.pattern_type == CardPattern.PAIR and \
 					   is_same_suit_as_lead(follow_pattern.cards[0], lead_pattern.cards[0], trump_suit, current_rank)
 
-			# 没有同花色对子
 			if same_suit_cards.size() >= 2:
-				# 情况2：有2张或更多同花色，必须出2张同花色
 				var all_same_suit = true
 				for card in follow_pattern.cards:
 					if not is_same_suit_as_lead(card, lead_pattern.cards[0], trump_suit, current_rank):
@@ -202,7 +180,6 @@ static func can_follow(follow_pattern: PlayPattern, lead_pattern: PlayPattern, h
 						break
 				return all_same_suit
 			elif same_suit_cards.size() == 1:
-				# 情况3：只有1张同花色，必须出这1张同花色 + 1张其它花色
 				var has_one_same_suit = false
 				for card in follow_pattern.cards:
 					if is_same_suit_as_lead(card, lead_pattern.cards[0], trump_suit, current_rank):
@@ -210,36 +187,29 @@ static func can_follow(follow_pattern: PlayPattern, lead_pattern: PlayPattern, h
 						break
 				return has_one_same_suit
 			else:
-				# 情况4：没有同花色，可以出任意2张
 				return true
 		
 		CardPattern.TRACTOR:
-			# 跟拖拉机：有同花色拖拉机必须出拖拉机
 			var tractors = find_tractors_in_cards(same_suit_cards, lead_pattern.length, trump_suit, current_rank)
 			if tractors.size() > 0:
 				return follow_pattern.pattern_type == CardPattern.TRACTOR and \
 					   is_same_suit_as_lead(follow_pattern.cards[0], lead_pattern.cards[0], trump_suit, current_rank)
 			
-			# 没有拖拉机，有对子必须先出对子
 			var pairs = find_pairs_in_cards(same_suit_cards)
 			if pairs.size() > 0:
-				# 必须尽量出对子
 				return true
 			
-			# 没有对子，可以出任意牌
 			return true
 		
 		CardPattern.THROW:
-			# 甩牌：需要验证甩牌是否成功
-			# 简化处理：只要花色对就行
 			return true
 	
 	return true
 
 static func is_same_suit_as_lead(card: Card, lead_card: Card, trump_suit: Card.Suit, current_rank: int) -> bool:
-	"""检查两张牌是否同花色（考虑主牌）"""
-	card.set_trump(trump_suit, current_rank)
-	lead_card.set_trump(trump_suit, current_rank)
+	"""Check whether two cards match suit, accounting for trump."""
+	ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
+	ShengjiCardLogic.apply_trump(lead_card, trump_suit, current_rank)
 	
 	if lead_card.is_trump:
 		return card.is_trump
@@ -247,18 +217,16 @@ static func is_same_suit_as_lead(card: Card, lead_card: Card, trump_suit: Card.S
 		return not card.is_trump and card.suit == lead_card.suit
 
 static func get_valid_follow_cards(hand: Array[Card], lead_pattern: PlayPattern, trump_suit: Card.Suit, current_rank: int) -> Array:
-	"""获取合法的跟牌（返回所有可能的跟牌组合）"""
+	"""Return all legal follow-card combinations."""
 	if lead_pattern.pattern_type == CardPattern.INVALID:
 		return []
 	
-	# 更新手牌的主牌状态
 	for card in hand:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 	
 	var lead_is_trump = lead_pattern.cards[0].is_trump
 	var lead_suit = lead_pattern.cards[0].suit
 	
-	# 找出同花色的牌
 	var same_suit_cards: Array[Card] = []
 	for card in hand:
 		if lead_is_trump:
@@ -268,13 +236,11 @@ static func get_valid_follow_cards(hand: Array[Card], lead_pattern: PlayPattern,
 			if not card.is_trump and card.suit == lead_suit:
 				same_suit_cards.append(card)
 	
-	# 如果没有同花色，可以出任意牌
 	if same_suit_cards.is_empty():
 		if hand.size() >= lead_pattern.length:
 			return [hand.slice(0, lead_pattern.length)]
 		return []
 	
-	# 根据首家牌型返回合法跟牌
 	match lead_pattern.pattern_type:
 		CardPattern.SINGLE:
 			var valid_plays = []
@@ -283,23 +249,15 @@ static func get_valid_follow_cards(hand: Array[Card], lead_pattern: PlayPattern,
 			return valid_plays
 		
 		CardPattern.PAIR:
-			# 跟对子的优先级：
-			# 1. 有同花色对子，出同花色对子
-			# 2. 没有对子但有2张或更多同花色，出2张同花色
-			# 3. 只有1张同花色，出这1张同花色 + 1张其它花色
-			# 4. 没有同花色，出任意2张
 
 			var pairs = find_pairs_in_cards(same_suit_cards)
 			if pairs.size() > 0:
-				# 情况1：有同花色对子
 				return pairs
 
 			if same_suit_cards.size() >= 2:
-				# 情况2：没有对子，但有2张或更多同花色
 				return [[same_suit_cards[0], same_suit_cards[1]]]
 
 			if same_suit_cards.size() == 1:
-				# 情况3：只有1张同花色，组合1张同花色 + 1张其它花色
 				var other_cards: Array[Card] = []
 				for card in hand:
 					if not same_suit_cards.has(card):
@@ -307,7 +265,6 @@ static func get_valid_follow_cards(hand: Array[Card], lead_pattern: PlayPattern,
 				if other_cards.size() > 0:
 					return [[same_suit_cards[0], other_cards[0]]]
 
-			# 情况4：没有同花色，出任意2张
 			if hand.size() >= 2:
 				return [hand.slice(0, 2)]
 			return []
@@ -317,7 +274,6 @@ static func get_valid_follow_cards(hand: Array[Card], lead_pattern: PlayPattern,
 			if tractors.size() > 0:
 				return tractors
 			
-			# 没有拖拉机，尽量出对子
 			var pairs = find_pairs_in_cards(same_suit_cards)
 			if pairs.size() > 0:
 				var result = []
@@ -330,11 +286,9 @@ static func get_valid_follow_cards(hand: Array[Card], lead_pattern: PlayPattern,
 				if result.size() >= lead_pattern.length:
 					return [result.slice(0, lead_pattern.length)]
 			
-			# 出同花色的牌
 			if same_suit_cards.size() >= lead_pattern.length:
 				return [same_suit_cards.slice(0, lead_pattern.length)]
 			
-			# 不够同花色，垫其他牌
 			if hand.size() >= lead_pattern.length:
 				return [hand.slice(0, lead_pattern.length)]
 			return []
@@ -349,7 +303,7 @@ static func get_valid_follow_cards(hand: Array[Card], lead_pattern: PlayPattern,
 	return []
 
 static func find_pairs_in_cards(cards: Array[Card]) -> Array:
-	"""在牌中找出所有对子"""
+	"""Find all pairs in a card list."""
 	var sorted_cards: Array[Card] = []
 	sorted_cards.assign(cards)
 	sorted_cards.sort_custom(func(a, b): 
@@ -371,16 +325,15 @@ static func find_pairs_in_cards(cards: Array[Card]) -> Array:
 	return pairs
 
 static func find_tractors_in_cards(cards: Array[Card], min_length: int, trump_suit: Card.Suit, current_rank: int) -> Array:
-	"""在牌中找出拖拉机"""
+	"""Find tractors in a card list."""
 	for card in cards:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 	
 	var pairs = find_pairs_in_cards(cards)
 	var required_pairs = int(min_length / 2)
 	if pairs.size() < required_pairs:
 		return []
 	
-	# 检查对子是否连续
 	var tractors = []
 	for i in range(pairs.size() - required_pairs + 1):
 		var tractor_cards = []
@@ -404,7 +357,6 @@ static func find_tractors_in_cards(cards: Array[Card], min_length: int, trump_su
 					is_valid = false
 					break
 
-				# 级别牌は連続に含めない
 				if prev_pair[0].rank == current_rank or curr_pair[0].rank == current_rank:
 					is_valid = false
 					break
@@ -421,23 +373,21 @@ static func find_tractors_in_cards(cards: Array[Card], min_length: int, trump_su
 	return tractors
 
 # ============================================
-# 比牌逻辑
+# play comparisonlogic
 # ============================================
 
 static func compare_plays(play1: PlayPattern, play2: PlayPattern, trump_suit: Card.Suit, current_rank: int) -> int:
 	"""
-	比较两次出牌
-	返回 1: play1 大
-	返回 -1: play2 大
-	返回 0: 相等
+	return 1: play1 larger
+	return -1: play2 larger
+	return 0: equal
 	"""
-	# 更新主牌状态
+	# updateTrumpstate
 	for card in play1.cards:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 	for card in play2.cards:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 	
-	# 如果一个是主牌一个不是，主牌大
 	var play1_is_trump = play1.cards[0].is_trump
 	var play2_is_trump = play2.cards[0].is_trump
 	
@@ -446,14 +396,14 @@ static func compare_plays(play1: PlayPattern, play2: PlayPattern, trump_suit: Ca
 	elif not play1_is_trump and play2_is_trump:
 		return -1
 	
-	# 如果花色不同（都不是主牌），首家大
+	# ifsuitdifferent（bothis notTrump），lead playerlarger
 	if not play1_is_trump and not play2_is_trump:
 		if play1.cards[0].suit != play2.cards[0].suit:
-			return 1  # 首家大
+			return 1  # lead playerlarger
 	
-	# 牌型不同，按优先级比较
+	# patterndifferent，based onpriority levelcompare
 	if play1.pattern_type != play2.pattern_type:
-		# 拖拉机 > 对子 > 单张 > 甩牌
+		# Tractor > Pair > Single > Throw
 		var priority = {
 			CardPattern.TRACTOR: 3,
 			CardPattern.PAIR: 2,
@@ -468,32 +418,30 @@ static func compare_plays(play1: PlayPattern, play2: PlayPattern, trump_suit: Ca
 			return -1
 		return 0
 	
-	# 相同牌型，比较最大的牌
 	var card1 = get_largest_card(play1.cards, trump_suit, current_rank)
 	var card2 = get_largest_card(play2.cards, trump_suit, current_rank)
 	
-	return card1.compare_to(card2, trump_suit, current_rank)
+	return ShengjiCardLogic.compare_cards(card1, card2, trump_suit, current_rank)
 
 static func get_largest_card(cards: Array[Card], trump_suit: Card.Suit, current_rank: int) -> Card:
-	"""获取一组牌中最大的牌"""
+	"""Return the largest card in a card list."""
 	if cards.is_empty():
 		return null
 	
 	var largest = cards[0]
 	for card in cards:
-		card.set_trump(trump_suit, current_rank)
-		largest.set_trump(trump_suit, current_rank)
-		if card.compare_to(largest, trump_suit, current_rank) > 0:
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(largest, trump_suit, current_rank)
+		if ShengjiCardLogic.compare_cards(card, largest, trump_suit, current_rank) > 0:
 			largest = card
 	
 	return largest
 
 # ============================================
-# 计分
 # ============================================
 
 static func calculate_points(cards: Array) -> int:
-	"""计算一组牌的分数"""
+	"""Calculate points for a card list."""
 	var total = 0
 	for card in cards:
 		if card is Card:
@@ -501,11 +449,11 @@ static func calculate_points(cards: Array) -> int:
 	return total
 
 # ============================================
-# 验证出牌
+# validatePlay cards
 # ============================================
 
 static func validate_play(cards: Array[Card], hand: Array[Card]) -> bool:
-	"""验证是否可以出这些牌"""
+	"""Validate whether these cards can be played."""
 	for card in cards:
 		if not hand.has(card):
 			return false

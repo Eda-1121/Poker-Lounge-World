@@ -1,4 +1,3 @@
-# game_over_ui.gd - ゲーム終了画面
 extends Control
 class_name GameOverUI
 
@@ -7,6 +6,7 @@ signal quit_game
 signal go_to_title
 
 var panel: Panel
+var background: ColorRect
 var title_label: Label
 var winner_label: Label
 var stats_label: Label
@@ -17,18 +17,21 @@ var title_button: Button
 const C_GOLD = Color(0.941, 0.788, 0.416)
 
 func _ready():
+	if not GameConfig.language_changed.is_connected(_on_language_changed):
+		GameConfig.language_changed.connect(_on_language_changed)
 	create_game_over_panel()
+	apply_layout()
+	if not get_viewport().size_changed.is_connected(apply_layout):
+		get_viewport().size_changed.connect(apply_layout)
 	visible = false
 
 func create_game_over_panel():
-	var background = ColorRect.new()
+	background = ColorRect.new()
 	background.color = Color(0, 0, 0, 0.72)
 	background.position = Vector2.ZERO
-	background.size = Vector2(1280, 720)
 	add_child(background)
 
 	panel = Panel.new()
-	panel.position = Vector2(340, 170)
 	panel.size = Vector2(600, 380)
 
 	var ps = StyleBoxFlat.new()
@@ -39,7 +42,6 @@ func create_game_over_panel():
 	panel.add_theme_stylebox_override("panel", ps)
 	add_child(panel)
 
-	# ゴールド区切りライン
 	var accent_line = ColorRect.new()
 	accent_line.position = Vector2(0, 0)
 	accent_line.size = Vector2(600, 4)
@@ -49,7 +51,7 @@ func create_game_over_panel():
 	title_label = Label.new()
 	title_label.position = Vector2(50, 22)
 	title_label.size = Vector2(500, 50)
-	title_label.text = "ゲーム終了"
+	title_label.text = GameConfig.text("game_over")
 	title_label.add_theme_font_size_override("font_size", 36)
 	title_label.add_theme_color_override("font_color", Color(C_GOLD, 0.95))
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -58,13 +60,12 @@ func create_game_over_panel():
 	winner_label = Label.new()
 	winner_label.position = Vector2(50, 100)
 	winner_label.size = Vector2(500, 60)
-	winner_label.text = "チームA が勝利!"
+	winner_label.text = GameConfig.text("team_wins") % "A"
 	winner_label.add_theme_font_size_override("font_size", 32)
 	winner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	winner_label.add_theme_color_override("font_color", Color(C_GOLD))
 	panel.add_child(winner_label)
 
-	# 区切り線
 	var sep = ColorRect.new()
 	sep.position = Vector2(60, 170)
 	sep.size = Vector2(480, 1)
@@ -74,7 +75,11 @@ func create_game_over_panel():
 	stats_label = Label.new()
 	stats_label.position = Vector2(50, 182)
 	stats_label.size = Vector2(500, 80)
-	stats_label.text = "チームA: レベルA\nチームB: レベル10"
+	stats_label.text = "%s\n%s: A    %s: 10" % [
+		GameConfig.text("final_level"),
+		GameConfig.text("team_a"),
+		GameConfig.text("team_b"),
+	]
 	stats_label.add_theme_font_size_override("font_size", 22)
 	stats_label.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
 	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -85,17 +90,24 @@ func create_game_over_panel():
 	button_container.add_theme_constant_override("separation", 16)
 	panel.add_child(button_container)
 
-	restart_button = _make_btn("もう一度", true)
+	restart_button = _make_btn(GameConfig.text("restart"), true)
 	restart_button.pressed.connect(_on_restart_pressed)
 	button_container.add_child(restart_button)
 
-	title_button = _make_btn("タイトルへ", false)
+	title_button = _make_btn(GameConfig.text("title"), false)
 	title_button.pressed.connect(_on_title_pressed)
 	button_container.add_child(title_button)
 
-	quit_button = _make_btn("ゲームを終了", false)
+	quit_button = _make_btn(GameConfig.text("quit_game"), false)
 	quit_button.pressed.connect(_on_quit_pressed)
 	button_container.add_child(quit_button)
+
+func apply_layout():
+	var viewport_size = get_viewport().get_visible_rect().size
+	if background:
+		background.size = viewport_size
+	if panel:
+		panel.position = (viewport_size - panel.size) * 0.5
 
 func _make_btn(text: String, primary: bool) -> Button:
 	var btn = Button.new()
@@ -129,8 +141,9 @@ func _make_btn(text: String, primary: bool) -> Button:
 
 func show_game_over(winner_team: int, team1_level: int, team2_level: int, total_rounds: int = 0):
 	visible = true
+	apply_layout()
 
-	winner_label.text = "🏆 チーム%s が勝利! 🏆" % ("A" if winner_team == 0 else "B")
+	winner_label.text = "🏆 %s 🏆" % (GameConfig.text("team_wins") % ("A" if winner_team == 0 else "B"))
 
 	var level_names = {
 		2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8",
@@ -138,9 +151,15 @@ func show_game_over(winner_team: int, team1_level: int, team2_level: int, total_
 	}
 	var l1 = level_names.get(team1_level, str(team1_level))
 	var l2 = level_names.get(team2_level, str(team2_level))
-	stats_label.text = "最終レベル\nチームA: %s　　チームB: %s" % [l1, l2]
+	stats_label.text = "%s\n%s: %s    %s: %s" % [
+		GameConfig.text("final_level"),
+		GameConfig.text("team_a"),
+		l1,
+		GameConfig.text("team_b"),
+		l2,
+	]
 	if total_rounds > 0:
-		stats_label.text += "\n\n合計 %d ラウンド" % total_rounds
+		stats_label.text += "\n\n" + (GameConfig.text("total_rounds") % total_rounds)
 
 func hide_game_over():
 	visible = false
@@ -154,3 +173,13 @@ func _on_title_pressed():
 
 func _on_quit_pressed():
 	quit_game.emit()
+
+func _on_language_changed(_language: String):
+	if title_label:
+		title_label.text = GameConfig.text("game_over")
+	if restart_button:
+		restart_button.text = GameConfig.text("restart")
+	if title_button:
+		title_button.text = GameConfig.text("title")
+	if quit_button:
+		quit_button.text = GameConfig.text("quit_game")

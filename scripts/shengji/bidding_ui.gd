@@ -1,4 +1,4 @@
-# bidding_ui.gd - 宣言UIコンポーネント
+# bidding_ui.gd - Bidding UI component
 extends Control
 class_name BiddingUI
 
@@ -8,23 +8,21 @@ signal bid_passed
 var bid_panel: Panel
 var button_container: HBoxContainer
 var current_bid_label: Label
+var title_label: Label
 
 const C_GOLD = Color(0.941, 0.788, 0.416)
 
-var suit_names = {
-	Card.Suit.SPADE:   "スペード ♠",
-	Card.Suit.HEART:   "ハート ♥",
-	Card.Suit.CLUB:    "クラブ ♣",
-	Card.Suit.DIAMOND: "ダイヤ ♦"
-}
-
 func _ready():
 	create_bidding_panel()
+	apply_layout()
+	if not get_viewport().size_changed.is_connected(apply_layout):
+		get_viewport().size_changed.connect(apply_layout)
+	if not GameConfig.language_changed.is_connected(_on_language_changed):
+		GameConfig.language_changed.connect(_on_language_changed)
 	visible = false
 
 func create_bidding_panel():
 	bid_panel = Panel.new()
-	bid_panel.position = Vector2(280, 238)
 	bid_panel.size = Vector2(720, 190)
 
 	var panel_style = StyleBoxFlat.new()
@@ -35,10 +33,10 @@ func create_bidding_panel():
 	bid_panel.add_theme_stylebox_override("panel", panel_style)
 	add_child(bid_panel)
 
-	var title_label = Label.new()
+	title_label = Label.new()
 	title_label.position = Vector2(20, 10)
 	title_label.size = Vector2(680, 30)
-	title_label.text = "宣言フェーズ"
+	title_label.text = GameConfig.text("bidding_phase")
 	title_label.add_theme_font_size_override("font_size", 24)
 	title_label.add_theme_color_override("font_color", Color(C_GOLD, 0.95))
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -47,7 +45,7 @@ func create_bidding_panel():
 	current_bid_label = Label.new()
 	current_bid_label.position = Vector2(20, 50)
 	current_bid_label.size = Vector2(680, 25)
-	current_bid_label.text = "まだ宣言なし"
+	current_bid_label.text = GameConfig.text("no_bid_yet")
 	current_bid_label.add_theme_font_size_override("font_size", 18)
 	current_bid_label.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
 	current_bid_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -59,6 +57,25 @@ func create_bidding_panel():
 	button_container.alignment = BoxContainer.ALIGNMENT_CENTER
 	button_container.add_theme_constant_override("separation", 10)
 	bid_panel.add_child(button_container)
+
+func apply_layout():
+	if bid_panel == null:
+		return
+	var viewport_size = get_viewport().get_visible_rect().size
+	var panel_width = clamp(viewport_size.x * 0.46, 620.0, 780.0)
+	bid_panel.size = Vector2(panel_width, 190)
+	bid_panel.position = Vector2(
+		(viewport_size.x - bid_panel.size.x) * 0.5,
+		max(170.0, viewport_size.y * 0.28)
+	)
+
+	if title_label:
+		title_label.size = Vector2(panel_width - 40, 30)
+	if current_bid_label:
+		current_bid_label.size = Vector2(panel_width - 40, 25)
+	if button_container:
+		button_container.size = Vector2(panel_width - 60, 50)
+		button_container.position = Vector2(30, 105)
 
 func _make_bid_btn_style(active: bool) -> StyleBoxFlat:
 	var s = StyleBoxFlat.new()
@@ -73,14 +90,16 @@ func show_bidding_options(available_suits: Array, suit_counts: Dictionary = {}):
 		child.queue_free()
 
 	visible = true
+	apply_layout()
 
 	for suit in available_suits:
 		var btn = Button.new()
+		var suit_name = get_suit_name(suit)
 		if suit_counts.has(suit):
 			var count = suit_counts[suit]
-			btn.text = "%s (%d枚)" % [suit_names[suit], count]
+			btn.text = GameConfig.text("bid_card_count") % [suit_name, count]
 		else:
-			btn.text = suit_names[suit]
+			btn.text = suit_name
 		btn.custom_minimum_size = Vector2(130, 44)
 		btn.add_theme_font_size_override("font_size", 16)
 		btn.add_theme_stylebox_override("normal",  _make_bid_btn_style(false))
@@ -93,7 +112,7 @@ func show_bidding_options(available_suits: Array, suit_counts: Dictionary = {}):
 		button_container.add_child(btn)
 
 	var pass_button = Button.new()
-	pass_button.text = "パス"
+	pass_button.text = GameConfig.text("pass")
 	pass_button.custom_minimum_size = Vector2(100, 44)
 	pass_button.add_theme_font_size_override("font_size", 18)
 	var ps = StyleBoxFlat.new()
@@ -117,6 +136,20 @@ func hide_bidding_ui():
 func update_current_bid(message: String):
 	current_bid_label.text = message
 
+func get_suit_name(suit: Card.Suit) -> String:
+	match suit:
+		Card.Suit.SPADE: return GameConfig.text("suit_spade")
+		Card.Suit.HEART: return GameConfig.text("suit_heart")
+		Card.Suit.CLUB: return GameConfig.text("suit_club")
+		Card.Suit.DIAMOND: return GameConfig.text("suit_diamond")
+		_: return "?"
+
+func _on_language_changed(_language: String):
+	if title_label:
+		title_label.text = GameConfig.text("bidding_phase")
+	if current_bid_label:
+		current_bid_label.text = GameConfig.text("no_bid_yet")
+
 func _on_suit_button_pressed(suit: Card.Suit, count: int = 1):
 	bid_made.emit(suit, count)
 	hide_bidding_ui()
@@ -127,6 +160,8 @@ func _on_pass_button_pressed():
 
 func show_bidding_ui(can_bid: bool = true):
 	visible = can_bid
+	if visible:
+		apply_layout()
 
 func enable_buttons(enabled: bool):
 	for btn in button_container.get_children():

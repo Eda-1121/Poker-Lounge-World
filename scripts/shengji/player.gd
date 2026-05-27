@@ -1,15 +1,17 @@
-# player.gd - 玩家类(改进版)
+# player.gd - Shengji player
 extends Node2D
 class_name Player
 
+const ShengjiCardLogic = preload("res://scripts/shengji/shengji_card_logic.gd")
+
 signal cards_played(cards: Array[Card])
 signal card_selected(card: Card)
-signal selection_changed(count: int)  # 新增:选牌数量变化信号
+signal selection_changed(count: int)
 
 enum PlayerType { HUMAN, AI }
 
 var player_id: int = 0
-var player_name: String = "玩家"
+var player_name: String = "Player "
 var player_type: PlayerType = PlayerType.HUMAN
 var team: int = 0
 var current_rank: int = 2
@@ -17,12 +19,12 @@ var current_rank: int = 2
 var hand: Array[Card] = []
 var is_dealer: bool = false
 
-# UI相关
+# UI state
 var hand_container: Node2D
-var card_spacing: float = 43.0  # 卡牌间距
+var card_spacing: float = 43.0
 var selected_cards: Array[Card] = []
 
-const MIN_CARD_SPACING = 28.0
+const MIN_CARD_SPACING = 18.0
 const HAND_SIDE_MARGIN = 14.0
 
 func _ready():
@@ -38,13 +40,10 @@ func receive_cards(cards: Array[Card], update_display_after_receive: bool = true
 			card.get_parent().remove_child(card)
 		hand_container.add_child(card)
 
-		# 不在这里设置visible，由调用者控制
 		# card.visible = true
 
-		# 人类玩家的牌表面朝上显示
 		if player_type == PlayerType.HUMAN:
 			card.set_face_up(true, true)
-			# 只有人类玩家的牌才可以点击
 			if not card.card_clicked.is_connected(_on_card_clicked):
 				card.card_clicked.connect(_on_card_clicked)
 
@@ -52,45 +51,33 @@ func receive_cards(cards: Array[Card], update_display_after_receive: bool = true
 		update_hand_display()
 
 func sort_hand(trump_last: bool = false, trump_suit: Card.Suit = Card.Suit.SPADE, current_rank: int = 2):
-	"""
-	排序手牌
-	trump_last: true = 主牌放最后（出牌阶段），false = 主牌放最前（默认）
-	trump_suit: 主花色
-	current_rank: 当前等级
-	"""
+	"""Sort the hand for bidding or play."""
 	for card in hand:
-		card.set_trump(trump_suit, current_rank)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
 
 	hand.sort_custom(func(a, b):
-		# 如果主牌放最后
 		if trump_last:
-			# 非主牌在前，主牌在后
 			if a.is_trump != b.is_trump:
-				return not a.is_trump  # 非主牌返回true，排在前面
+				return not a.is_trump
 
-			# 如果都不是主牌，按花色和点数排序
 			if not a.is_trump:
 				if a.suit != b.suit:
 					return a.suit < b.suit
 				return a.rank < b.rank
 
-			# 都是主牌，需要按照特殊顺序排序
-			# 判断牌的类型
 			var a_type = _get_trump_type(a, trump_suit, current_rank)
 			var b_type = _get_trump_type(b, trump_suit, current_rank)
 
 			if a_type != b_type:
 				return a_type < b_type
 
-			# 同类型内部排序
-			if a_type == 0:  # 主花色非等级牌
+			if a_type == 0:
 				return a.rank < b.rank
-			elif a_type == 1:  # 非主花色等级牌
+			elif a_type == 1:
 				return a.suit < b.suit
-			# 其他类型（主花色等级牌、小王、大王）已经由type确定顺序
+			# Other types are already ordered by type.
 			return a.rank < b.rank
 		else:
-			# 默认排序：主牌在前
 			if a.is_trump != b.is_trump:
 				return a.is_trump
 			if a.suit != b.suit:
@@ -100,38 +87,32 @@ func sort_hand(trump_last: bool = false, trump_suit: Card.Suit = Card.Suit.SPADE
 
 func _get_trump_type(card: Card, trump_suit: Card.Suit, current_rank: int) -> int:
 	"""
-	获取主牌的类型，返回值越小越靠前
-	0: 主花色的非等级牌
-	1: 非主花色的等级牌
-	2: 主花色的等级牌
-	3: 小王
-	4: 大王
+	3: Small Joker
+	4: Big Joker
 	"""
 	if card.suit == Card.Suit.JOKER:
 		if card.rank == Card.Rank.SMALL_JOKER:
-			return 3  # 小王
+			return 3  # Small Joker
 		else:
-			return 4  # 大王
+			return 4  # Big Joker
 
 	if card.rank == current_rank:
 		if card.suit == trump_suit:
-			return 2  # 主花色等级牌
+			return 2
 		else:
-			return 1  # 非主花色等级牌
+			return 1
 
 	if card.suit == trump_suit:
-		return 0  # 主花色非等级牌
+		return 0
 
-	# 不应该到这里，因为调用者已经确认是主牌
 	return 5
 
 func update_hand_display(animate: bool = true):
-	"""更新手牌显示，确保与hand数组完全同步"""
-	print("=== update_hand_display 开始 ===")
-	print("hand数组大小：", hand.size())
-	print("hand_container子节点数：", hand_container.get_child_count())
+	"""Update the hand display so it matches the hand array."""
+	print("=== update_hand_display Start ===")
+	print("hand array size: ", hand.size())
+	print("hand_container child count: ", hand_container.get_child_count())
 
-	# 第一步：彻底清理hand_container中所有不在hand数组中的卡牌
 	var to_remove = []
 	for child in hand_container.get_children():
 		if child is Card:
@@ -139,42 +120,35 @@ func update_hand_display(animate: bool = true):
 				to_remove.append(child)
 
 	for card in to_remove:
-		print("移除不在hand数组中的卡牌：", card)
+		print("Remove card no longer in hand: ", card)
 		hand_container.remove_child(card)
-		card.visible = false  # 隐藏已出的牌
+		card.visible = false
 
-	# 第二步：确保hand数组中的所有卡牌都在hand_container中
 	for card in hand:
 		if card.get_parent() != hand_container:
-			print("将卡牌添加到hand_container：", card)
-			# 如果卡牌在其他父节点，先移除
+			print("Add card to hand_container: ", card)
 			if card.get_parent():
 				card.get_parent().remove_child(card)
 			hand_container.add_child(card)
 
-		# 确保卡牌可见和可选择（只对在手牌中的卡牌）
 		card.visible = true
 		card.is_selectable = true
 
-		# 确保卡牌颜色正常（清除任何残留的高亮）
 		if card.sprite and not card.is_selected:
 			card.sprite.modulate = Color.WHITE
 
-	print("清理后 - hand_container子节点数：", hand_container.get_child_count())
+	print("After cleanup - hand_container child count: ", hand_container.get_child_count())
 
-	# 第三步：重新排列所有手牌位置
-	var effective_card_spacing = get_effective_card_spacing()
-	var row_width = effective_card_spacing * float(max(hand.size() - 1, 0))
-	var start_x = -row_width * 0.5
+	var layout = get_hand_layout()
 	for i in range(hand.size()):
 		var card = hand[i]
-		var target_pos = Vector2(start_x + i * effective_card_spacing, 0)
+		card.visible = true
+		card.set_hand_overlap_spacing(layout["spacing"], i == hand.size() - 1)
+		var target_pos = layout["positions"][i]
 
-		# 保存选中状态
 		var was_selected = card.is_selected
 
 		if animate:
-			# 如果卡牌被选中，移动到偏移后的位置
 			if was_selected:
 				var offset_pos = Vector2(target_pos.x, target_pos.y - Card.SELECTED_HEIGHT)
 				card.move_to_with_base(target_pos, offset_pos, 0.3)
@@ -187,12 +161,20 @@ func update_hand_display(animate: bool = true):
 			else:
 				card.position = target_pos
 
-		card.z_index = i
+		card.z_index = 1000 + selected_cards.find(card) if card.is_selected else i
 
-	print("=== update_hand_display 完成 ===") 
+	print("=== update_hand_display Complete ===") 
+
+func refresh_hand_z_order():
+	for i in range(hand.size()):
+		var card = hand[i]
+		card.z_index = 1000 + selected_cards.find(card) if card.is_selected else i
 
 func get_effective_card_spacing() -> float:
-	if hand.size() <= 1:
+	return get_effective_card_spacing_for_count(hand.size())
+
+func get_effective_card_spacing_for_count(card_count: int) -> float:
+	if card_count <= 1:
 		return card_spacing
 
 	var viewport_width = 1280.0
@@ -204,32 +186,35 @@ func get_effective_card_spacing() -> float:
 	if available_span <= 0:
 		return MIN_CARD_SPACING
 
-	var max_spacing = available_span / float(hand.size() - 1)
-	return clamp(max_spacing, MIN_CARD_SPACING, card_spacing)
+	var max_spacing = available_span / float(card_count - 1)
+	return min(card_spacing, max(MIN_CARD_SPACING, max_spacing))
+
+func get_hand_layout() -> Dictionary:
+	var positions: Array[Vector2] = []
+	var spacing = get_effective_card_spacing()
+	var row_width = spacing * float(max(hand.size() - 1, 0))
+	var start_x = -row_width * 0.5
+	for i in range(hand.size()):
+		positions.append(Vector2(start_x + i * spacing, 0))
+
+	return {"positions": positions, "spacing": spacing}
 
 func _on_card_clicked(card: Card):
 	if player_type != PlayerType.HUMAN:
 		return
 
-	# 检查卡牌是否在手牌中（防止已出的牌被点击）
 	if not hand.has(card):
-		print("警告：尝试选择不在手牌中的卡牌 ", card)
+		print("Warning: tried to select a card not in hand ", card)
 		return
 
 	if card.is_selected:
 		card.set_selected(false)
 		selected_cards.erase(card)
-		# 恢复原始z_index
-		var index = hand.find(card)
-		if index >= 0:
-			card.z_index = index
 	else:
 		card.set_selected(true)
 		selected_cards.append(card)
-		# 将选中的卡牌置于最前面
-		card.z_index = 1000 + selected_cards.size()
+	refresh_hand_z_order()
 
-	# 发出选牌变化信号
 	selection_changed.emit(selected_cards.size())
 	card_selected.emit(card)
 
@@ -237,79 +222,67 @@ func play_selected_cards() -> bool:
 	if selected_cards.is_empty():
 		return false
 
-	# 复制一份，避免在play_cards中清空selected_cards影响cards参数
 	var cards_to_play = selected_cards.duplicate()
 	return play_cards(cards_to_play)
 
 func play_cards(cards: Array[Card]) -> bool:
-	"""出牌并更新手牌显示"""
+	"""Play cards and update the hand display."""
 	if not can_play_cards(cards):
-		print("错误：无法出牌，部分卡牌不在手牌中")
+		print("Error: cannot play because some cards are not in hand")
 		return false
 
-	print("=== 开始出牌 ===")
-	print("出牌前 - hand.size() = ", hand.size())
-	print("准备出牌数量：", cards.size())
-
-	# 记录要出的牌
-	for card in cards:
-		print("出牌：", card.get_card_name())
+	print("=== StartPlay cards ===")
+	print("Before play - hand.size() = ", hand.size())
+	print("Cards to play: ", cards.size())
 
 	for card in cards:
-		# 立即取消选中状态（不使用动画，避免Tween冲突）
+		print("Play cards：", card.get_card_name())
+
+	for card in cards:
 		if card.is_selected:
 			card.is_selected = false
 			if card.sprite:
-				card.sprite.modulate = Color.WHITE  # 立即恢复颜色
+				card.sprite.modulate = Color.WHITE  # immediatelyrestorecolor
 
-		# 设置卡牌为不可选择
 		card.is_selectable = false
 
-		# 断开信号连接（避免已出的牌还能被点击）
 		if card.card_clicked.is_connected(_on_card_clicked):
 			card.card_clicked.disconnect(_on_card_clicked)
 
-		# 从手牌数组中移除
 		hand.erase(card)
 
-		# 从UI容器中移除（重要：确保从UI中移除）
 		if card.get_parent() == hand_container:
 			hand_container.remove_child(card)
-			print("从hand_container移除卡牌：", card.get_card_name())
+			print("Remove card from hand_container: ", card.get_card_name())
 
-		# 从选中列表中移除
 		if selected_cards.has(card):
 			selected_cards.erase(card)
 
-	# 清空选中列表（以防万一）
 	selected_cards.clear()
 
-	print("出牌后 - hand.size() = ", hand.size())
+	print("After play - hand.size() = ", hand.size())
 
-	# 立即更新手牌显示（不使用动画，避免与出牌动画冲突）
 	update_hand_display(false)
 
-	# 验证：再次检查hand数组和UI是否同步
 	verify_hand_sync()
 
-	# 发出信号
 	cards_played.emit(cards)
-	print("=== 出牌完成 ===")
+	print("=== Play cardsComplete ===")
 	return true
 
 func verify_hand_sync():
-	"""验证hand数组和UI显示是否同步"""
+	"""Verify the hand array and UI display are synchronized."""
 	var ui_card_count = 0
 	for child in hand_container.get_children():
 		if child is Card:
 			ui_card_count += 1
 
 	if ui_card_count != hand.size():
-		print("警告：手牌不同步！hand数组：", hand.size(), "张，UI显示：", ui_card_count, "张")
-		print("强制同步手牌显示...")
+		print("Warning: hand is out of sync. hand array: ", hand.size(), " UI cards: ", ui_card_count)
+		print("Forcing hand display sync...")
 		update_hand_display(false)
 	else:
-		print("验证通过：手牌同步正常，共 ", hand.size(), " 张")
+		print("Verification passed: hand is synchronized. Count: ", hand.size())
 
 func can_play_cards(cards: Array[Card]) -> bool:
 	for card in cards:
@@ -351,14 +324,15 @@ func set_card_selectable(selectable: bool):
 		card.is_selectable = selectable
 
 func clear_selection():
-	"""清除所有选中的牌"""
+	"""Clear all selected cards."""
 	for card in selected_cards:
 		card.set_selected(false)
 	selected_cards.clear()
+	refresh_hand_z_order()
 	selection_changed.emit(0)
 
 func pre_select_cards(cards: Array[Card]):
-	"""埋底フェーズ用：複数カードを一括で選択状態にする"""
+	"""Select multiple cards at once for the burying phase."""
 	for card in cards:
 		if hand.has(card) and not card.is_selected:
 			card.set_selected(true)

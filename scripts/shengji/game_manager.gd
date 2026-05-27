@@ -1,5 +1,8 @@
-# game_manager.gd - Phase 2 完整版游戏管理器
+# game_manager.gd - Shengji game manager
 extends Node
+
+const ShengjiCardLogic = preload("res://scripts/shengji/shengji_card_logic.gd")
+const ShengjiTableLayout = preload("res://scripts/shengji/shengji_table_layout.gd")
 
 enum GamePhase { DEALING_AND_BIDDING, BURYING, PLAYING, SCORING }
 
@@ -18,39 +21,32 @@ var last_trick_summary: Array = []  # [{player_name, cards_text, winner}]
 var team_scores: Array[int] = [0, 0]
 var team_levels: Array[int] = [2, 2]
 
-# 各プレイヤーの花色切れ追跡（-1 = トランプ切れ、Card.Suit値 = 非トランプ切れ）
 const VOID_TRUMP = -1
 var player_void_suits: Array = [[], [], [], []]
 
-# 叫牌相关
+# Bidding state
 var current_bid = {
 	"team": -1,
 	"suit": Card.Suit.SPADE,
-	"count": 0,  # 叫牌张数(1=单张, 2=对子)
+	"count": 0,
 	"player_id": -1
 }
 var bidding_round: int = 0
-var max_bidding_rounds: int = 8  # 每人最多叫2次
+var max_bidding_rounds: int = 8
 
-# 游戏统计
+# Game stats
 var total_rounds_played: int = 0
 
-# 出牌区域 - 围绕屏幕中心留出足够空间，适配放大后的卡牌
-var play_area_positions = [
-	Vector2(640, 462),   # 玩家1（人类）- 下方中央
-	Vector2(350, 360),   # 玩家2（AI）- 左侧中央
-	Vector2(640, 228),   # 玩家3（AI）- 上方中央
-	Vector2(930, 360)    # 玩家4（AI）- 右侧中央
-]
+var play_area_positions: Array = []
 
 const PLAYED_CARD_SPACING = 42.0
 const PLAYED_CARD_MIN_SPACING = 30.0
 const PLAYED_CARD_MAX_WIDTH = 230.0
 
-# UI管理器引用
+# UI manager reference
 var ui_manager = null
 
-# 叫牌决策等待标记
+# Bid decision wait state
 var waiting_for_bid_decision: bool = false
 var bid_decision_made: bool = false
 
@@ -58,34 +54,52 @@ signal phase_changed(phase: GamePhase)
 signal game_over(winner_team: int)
 
 func _ready():
-	print("=== GameManager 初始化 (Phase 2) ===")
+	print("=== GameManager Initialize (Phase 2) ===")
 	randomize()
+	if not GameConfig.play_hints_changed.is_connected(_on_play_hints_changed):
+		GameConfig.play_hints_changed.connect(_on_play_hints_changed)
+	if not GameConfig.language_changed.is_connected(_on_language_changed):
+		GameConfig.language_changed.connect(_on_language_changed)
+	if not get_viewport().size_changed.is_connected(apply_layout):
+		get_viewport().size_changed.connect(apply_layout)
 	initialize_game()
 
 func initialize_game():
-	print("=== 初始化游戏：使用 ", GameConfig.num_decks, " 副牌 ===")
-	# 玩家位置：玩家1在下方居中，其他AI玩家位置不变
-	var player_positions = [
-		Vector2(640, 558),   # 玩家1（人类）- 下方居中，给下方出牌按钮留出空间
-		Vector2(50, 280),    # 玩家2（AI）- 左侧
-		Vector2(100, 50),    # 玩家3（AI）- 上方
-		Vector2(1050, 280)   # 玩家4（AI）- 右侧
-	]
+	print("=== Initialize game with ", GameConfig.num_decks, " decks ===")
+	var player_positions = get_player_positions()
 	
 	for i in 4:
 		var player = Player.new()
 		player.player_id = i
-		player.player_name = "玩家%d" % [i + 1]
+		player.player_name = get_player_display_name(i)
 		player.team = i % 2
 		player.player_type = Player.PlayerType.AI if i > 0 else Player.PlayerType.HUMAN
 		player.position = player_positions[i]
 		players.append(player)
 		add_child(player)
 	
+	apply_layout()
 	start_new_round()
 
+func apply_layout():
+	play_area_positions = get_play_area_positions()
+	var player_positions = get_player_positions()
+	for i in range(min(players.size(), player_positions.size())):
+		players[i].position = player_positions[i]
+		if players[i].hand_container:
+			players[i].update_hand_display(false)
+
+func get_table_size() -> Vector2:
+	return get_viewport().get_visible_rect().size
+
+func get_player_positions() -> Array:
+	return ShengjiTableLayout.get_player_positions(get_table_size())
+
+func get_play_area_positions() -> Array:
+	return ShengjiTableLayout.get_play_area_positions(get_table_size())
+
 func cleanup_round_cards():
-	"""清理上一局留下的牌，确保下一局使用全新的牌堆"""
+	"""Remove cards from the previous round so the next round starts with a fresh deck."""
 	if deck:
 		for card in deck.cards:
 			free_card_node(card)
@@ -125,10 +139,9 @@ func free_card_node(card: Card):
 	card.queue_free()
 
 func start_new_round():
-	print("=== 开始新一局 ===")
+	print("=== Start new round ===")
 	total_rounds_played += 1
 
-	# 重置游戏状态
 	cleanup_round_cards()
 	player_void_suits = [[], [], [], []]
 	deck = Deck.new(GameConfig.num_decks)
@@ -147,52 +160,48 @@ func start_new_round():
 	for player in players:
 		player.current_rank = current_level
 
-	# 步骤1: 洗牌
-	print("步骤1: 洗牌")
+	# Step 1: Shuffle
+	print("Step 1: Shuffle")
 	deck.shuffle()
 
-	# 步骤2: 准备底牌（8张）
-	print("步骤2: 准备底牌（8张）")
+	# Step 2: Prepare 8 bottom cards
+	print("Step 2: Prepare 8 bottom cards")
 	bottom_cards.clear()
 	for _i in 8:
 		if deck.cards.size() > 0:
 			bottom_cards.append(deck.cards.pop_back())
-	print("底牌准备完成，剩余牌数：", deck.cards.size())
+	print("Bottom cards prepared. Remaining cards: ", deck.cards.size())
 
 	players[dealer_index].is_dealer = true
 
-	# 初始化UI
+	# InitializeUI
 	if ui_manager:
 		ui_manager.update_level(current_level)
 		ui_manager.update_trump_suit("?")
 		ui_manager.update_team_scores(0, 0)
-		ui_manager.update_turn_message("正在发牌...")
+		ui_manager.update_turn_message(GameConfig.text("dealing"))
 		ui_manager.show_bury_button(false)
 		ui_manager.set_buttons_enabled(false)
 
-		# 显示叫牌UI（但按钮禁用）
 		if ui_manager.has_node("BiddingUI"):
 			var bidding_ui = ui_manager.get_node("BiddingUI")
 			bidding_ui.show_bidding_ui(false)
-			bidding_ui.update_current_bid("当前无人叫牌")
+			bidding_ui.update_current_bid(GameConfig.text("current_bid_none"))
 
 	phase_changed.emit(current_phase)
 
-	# 步骤3: 开始逐张发牌（发牌过程中可以随时叫牌）
-	print("步骤3: 开始发牌，发牌过程中可以随时叫牌")
+	# Step 3: Deal one card at a time; bidding is allowed while dealing.
+	print("Step 3: Start dealing; bids are allowed while dealing")
 	await get_tree().process_frame
 	start_dealing_cards()
 
 # =====================================
-# 发牌系统
 # =====================================
 
 func start_dealing_cards():
-	"""开始逐张发牌"""
-	# 只显示人类玩家（玩家1）
+	"""Deal cards one at a time."""
 	players[0].visible = true
 
-	# 隐藏其他AI玩家的手牌
 	for i in range(1, 4):
 		players[i].visible = false
 
@@ -200,46 +209,38 @@ func start_dealing_cards():
 	var card_index = 0
 	var current_player = dealer_index
 
-	# 逐张发牌
 	while deck.cards.size() > 0:
 		var card = deck.cards.pop_back()
 		var player = players[current_player]
 
-		# 将牌发给玩家
 		player.receive_cards([card])
 
-		# 只有人类玩家的牌需要显示
 		if player.player_type == Player.PlayerType.HUMAN:
 			card.set_face_up(true, false)
 			card.visible = true
 			player.set_card_selectable(false)
 			SoundManager.play_deal()
 		else:
-			# AI玩家的牌完全不显示（不需要看到背面）
 			card.visible = false
 			player.set_card_selectable(false)
 
 		card_index += 1
 
-		# 更新UI显示发牌进度
 		if ui_manager:
-			ui_manager.update_turn_message("正在发牌... (%d/%d)" % [card_index, total_cards])
+			ui_manager.update_turn_message(GameConfig.text("dealing_progress") % [card_index, total_cards])
 
-		# 检查该玩家是否可以叫牌
 		await check_and_handle_bidding(player, card)
 
-		# 下一个玩家
+		# nextPlayer 
 		current_player = (current_player + 1) % 4
 
-		# 发牌延迟（让玩家看到发牌过程）
 		await get_tree().create_timer(0.1).timeout
 
-	# 发牌完成
+	# DealComplete
 	await finish_dealing()
 
 func check_and_handle_bidding(player: Player, latest_card: Card):
-	"""检查玩家是否可以叫牌，并处理叫牌"""
-	# 检查玩家手里是否有当前级别的牌
+	"""Check whether the player can bid and handle the bid opportunity."""
 	var level_cards = []
 	for card in player.hand:
 		if card.rank == current_level:
@@ -248,14 +249,12 @@ func check_and_handle_bidding(player: Player, latest_card: Card):
 	if level_cards.is_empty():
 		return
 
-	# 计算各个花色的等级牌数量
 	var suit_counts = {}
 	for card in level_cards:
 		if not suit_counts.has(card.suit):
 			suit_counts[card.suit] = 0
 		suit_counts[card.suit] += 1
 
-	# 找到最多的花色及张数
 	var max_count = 0
 	var max_suit = null
 	for suit in suit_counts:
@@ -263,99 +262,87 @@ func check_and_handle_bidding(player: Player, latest_card: Card):
 			max_count = suit_counts[suit]
 			max_suit = suit
 
-	# 如果是人类玩家且拿到了当前级别的牌
 	if player.player_type == Player.PlayerType.HUMAN and max_count > 0:
-		# 收集所有可以叫的花色和对应的张数
 		var available_suits = []
 		var valid_suit_counts = {}
 		for suit in suit_counts:
 			var count = suit_counts[suit]
-			# 检查该花色是否可以叫牌
 			if can_make_bid(player, suit, count):
 				available_suits.append(suit)
 				valid_suit_counts[suit] = count
 
 		if not available_suits.is_empty():
-			# 显示叫牌UI，显示可以叫的花色和张数
 			if ui_manager and ui_manager.has_node("BiddingUI"):
 				var bidding_ui = ui_manager.get_node("BiddingUI")
 				bidding_ui.show_bidding_options(available_suits, valid_suit_counts)
 
-			# 设置等待标记
+			# setwaitflag
 			waiting_for_bid_decision = true
 			bid_decision_made = false
 
-			# 等待玩家做出决策（叫牌或不叫）
 			while waiting_for_bid_decision and not bid_decision_made:
 				await get_tree().create_timer(0.1).timeout
 
-			# 重置标记
 			waiting_for_bid_decision = false
 
-	# AI玩家自动叫牌逻辑
+	# AIPlayer automaticBidlogic
 	elif player.player_type == Player.PlayerType.AI:
-		# AI会根据手中等级牌的数量决定是否叫牌
 		if max_count > 0 and can_make_bid(player, max_suit, max_count):
-			# 如果AI有足够多的等级牌，就叫牌
-			# AI策略：至少2张才叫（除非还没人叫牌）
 			if max_count >= 2 or current_bid["count"] == 0:
 				make_bid(player, max_suit, max_count)
-				print("AI ", player.player_name, " 叫牌：", max_count, " 张")
+				print("AI ", player.player_name, " bids with count: ", max_count)
 
 func finish_dealing():
-	"""发牌完成，进行最后一次叫牌机会，然后确定主牌"""
-	print("=== finish_dealing() 被调用 ===")
-	print("步骤4: 发牌结束，检查是否有最后叫牌机会")
+	"""After dealing, offer final bid opportunities and decide trump."""
+	print("=== finish_dealing() called ===")
+	print("Step 4: Dealing finished; checking final bid opportunities")
 
 	if ui_manager:
-		ui_manager.update_turn_message("发牌完成，最后叫牌机会...")
+		ui_manager.update_turn_message(GameConfig.text("dealing_final_bid"))
 
-	# 步骤4: 发牌结束后的最后叫牌机会
-	# 检查所有玩家是否有更多等级牌可以反叫
+	# Step 4: Final bid opportunity after dealing.
+	# Check whether any player can counter-bid with more level cards.
 	await check_final_bidding_opportunity()
 
-	# 步骤5: 确定主牌和庄家
-	print("步骤5: 确定主牌和庄家")
+	# Step 5: Determine trump and dealer.
+	print("Step 5: Determine trump and dealer")
 	if ui_manager and ui_manager.has_node("BiddingUI"):
 		var bidding_ui = ui_manager.get_node("BiddingUI")
 		bidding_ui.hide_bidding_ui()
 
-	# 如果没人叫牌，默认庄家队叫黑桃
 	if current_bid["count"] == 0:
 		trump_suit = Card.Suit.SPADE
 		current_bid["suit"] = trump_suit
 		current_bid["team"] = players[dealer_index].team
 		current_bid["player_id"] = dealer_index
-		print("没人叫牌，默认庄家队叫黑桃")
+		print("No bid. Dealer team defaults to Spades")
 	else:
 		trump_suit = current_bid["suit"]
-		dealer_index = current_bid["player_id"]  # 叫到主的人成为庄家
-		print("叫牌成功！新庄家：", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
+		dealer_index = current_bid["player_id"]
+		print("Bid accepted. New dealer: ", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
 
 	if ui_manager:
 		ui_manager.update_trump_suit(get_trump_symbol())
-		ui_manager.show_center_message("队伍%d 叫到主: %s" % [current_bid["team"] + 1, get_trump_symbol()], 2.0)
+		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_symbol()], 2.0)
 
 	await get_tree().create_timer(2.0).timeout
 
-	# 步骤6: 进入埋底阶段
-	print("步骤6: 进入埋底阶段")
+	# Step 6: Enter burying phase.
+	print("Step 6: Enter burying phase")
 	if players[dealer_index].player_type == Player.PlayerType.HUMAN:
-		print("庄家是人类玩家，进入人类埋底阶段")
+		print("Dealer is human; enter human burying phase")
 		start_burying_phase()
 	else:
-		print("庄家是AI玩家，进入AI埋底阶段")
+		print("Dealer is AI; enter AI burying phase")
 		await ai_bury_bottom()
 
 # =====================================
-# 叫牌系统
 # =====================================
 
 func check_final_bidding_opportunity():
-	"""发牌结束后的最后叫牌机会"""
-	print("检查所有玩家是否有最后叫牌机会...")
+	"""Final bid opportunity after dealing."""
+	print("Checking all players for final bid opportunities...")
 
-	# 检查每个玩家手中的等级牌数量
 	for player in players:
 		var level_cards = []
 		for card in player.hand:
@@ -365,14 +352,12 @@ func check_final_bidding_opportunity():
 		if level_cards.is_empty():
 			continue
 
-		# 计算各个花色的等级牌数量
 		var suit_counts = {}
 		for card in level_cards:
 			if not suit_counts.has(card.suit):
 				suit_counts[card.suit] = 0
 			suit_counts[card.suit] += 1
 
-		# 找到最多的花色及张数
 		var max_count = 0
 		var max_suit = null
 		for suit in suit_counts:
@@ -380,12 +365,12 @@ func check_final_bidding_opportunity():
 				max_count = suit_counts[suit]
 				max_suit = suit
 
-		# 检查是否可以反叫（需要比当前叫牌更多的牌）
+		# Counter-bids require more level cards than the current bid.
 		if max_count > current_bid["count"]:
-			print(player.player_name, " 有 ", max_count, " 张等级牌，可以反叫")
+			print(player.player_name, " has ", max_count, " level cards and can counter-bid")
 
 			if player.player_type == Player.PlayerType.HUMAN:
-				# 人类玩家，显示叫牌UI
+				# humanPlayer ，showBidUI
 				var available_suits = []
 				var valid_suit_counts = {}
 				for suit in suit_counts:
@@ -398,109 +383,99 @@ func check_final_bidding_opportunity():
 					if ui_manager and ui_manager.has_node("BiddingUI"):
 						var bidding_ui = ui_manager.get_node("BiddingUI")
 						bidding_ui.show_bidding_options(available_suits, valid_suit_counts)
-						ui_manager.show_center_message("最后叫牌机会！", 2.0)
+						ui_manager.show_center_message(GameConfig.text("final_bid_opportunity"), 2.0)
 
-					# 等待玩家决策
+					# waitPlayer decision
 					waiting_for_bid_decision = true
 					bid_decision_made = false
 					while waiting_for_bid_decision and not bid_decision_made:
 						await get_tree().create_timer(0.1).timeout
 					waiting_for_bid_decision = false
 			else:
-				# AI玩家，自动判断是否反叫
-				if max_count > current_bid["count"] + 1:  # AI只在有明显优势时反叫
-					print("AI ", player.player_name, " 决定反叫")
+				# AI decides automatically whether to counter-bid.
+				if max_count > current_bid["count"] + 1:  # AI counter-bids only with a clear advantage.
+					print("AI ", player.player_name, " decides to counter-bid")
 					make_bid(player, max_suit, max_count)
 					await get_tree().create_timer(2.0).timeout
 				else:
-					print("AI ", player.player_name, " 放弃反叫")
+					print("AI ", player.player_name, " passes on counter-bid")
 
-	print("最后叫牌机会结束")
+	print("Final bid opportunity ended")
 
 func start_bidding_phase():
-	"""开始叫牌阶段"""
+	"""Start the bidding phase."""
 	current_player_index = dealer_index
 	process_bidding_turn()
 
 func process_bidding_turn():
-	"""处理当前玩家的叫牌轮次"""
+	"""Process the current player bid turn."""
 	if bidding_round >= max_bidding_rounds:
-		# 叫牌结束
+		# BidEnd
 		finish_bidding()
 		return
 	
 	var current_player = players[current_player_index]
 	
 	if ui_manager:
-		ui_manager.update_turn_message("%s 叫牌中..." % current_player.player_name)
+		ui_manager.update_turn_message(GameConfig.text("player_bidding") % current_player.player_name)
 
 	if current_player.player_type == Player.PlayerType.HUMAN:
-		# 人类玩家，等待UI输入
+		# humanPlayer ，waitUIinput
 		if ui_manager and ui_manager.has_node("BiddingUI"):
 			var bidding_ui = ui_manager.get_node("BiddingUI")
 			bidding_ui.enable_buttons(true)
 	else:
-		# AI玩家，自动叫牌
+		# AIPlayer ，automaticBid
 		await get_tree().create_timer(1.5).timeout
 		ai_make_bid(current_player)
 
 func _on_player_bid_made(suit: Card.Suit, count: int):
-	"""玩家做出叫牌"""
-	# 在发牌阶段，玩家1（人类）叫牌
+	"""Player makes a bid."""
 	var player = players[0]
 
-	# 验证叫牌是否有效
 	if not can_make_bid(player, suit, count):
 		if ui_manager:
-			ui_manager.show_center_message("叫牌无效!", 1.5)
+			ui_manager.show_center_message(GameConfig.text("invalid_bid"), 1.5)
 		return
 
-	# 执行叫牌
+	# executeBid
 	make_bid(player, suit, count)
 
-	# 禁用叫牌按钮
+	# disableBidbutton
 	if ui_manager and ui_manager.has_node("BiddingUI"):
 		var bidding_ui = ui_manager.get_node("BiddingUI")
 		bidding_ui.enable_buttons(false)
 
-	# 设置决策完成标记，通知继续发牌
+	# setdecisionCompleteflag，notifycontinueDeal
 	bid_decision_made = true
 
 func _on_player_bid_passed():
-	"""玩家选择不叫"""
-	# 禁用叫牌按钮
+	"""Player passes."""
+	# disableBidbutton
 	if ui_manager and ui_manager.has_node("BiddingUI"):
 		var bidding_ui = ui_manager.get_node("BiddingUI")
 		bidding_ui.enable_buttons(false)
 
-	# 设置决策完成标记，通知继续发牌
+	# setdecisionCompleteflag，notifycontinueDeal
 	bid_decision_made = true
 
 func can_make_bid(player: Player, suit: Card.Suit, count: int) -> bool:
 	"""
-	检查是否可以叫牌
-	规则：
-	- 第一次叫牌只需要1张等级牌
-	- 后续叫牌需要比当前叫牌更多的等级牌（count > current_bid["count"]）
-	- 同队加固：相同花色，更多张数
-	- 反主：不同队，更多张数（任意花色）
+	rules：
 	"""
-	# 如果还没有人叫牌，只需要至少1张等级牌
 	if current_bid["count"] == 0:
 		return count >= 1
 
-	# 如果已经有人叫牌，需要更多的等级牌才能反叫
-	# 1. 同队加固：相同花色，更多张数
+	# If there is already a bid, counter-bidding requires more level cards.
 	if player.team == current_bid["team"]:
 		if suit == current_bid["suit"] and count > current_bid["count"]:
 			return true
 
-	# 2. 反主：不同队，更多张数（任意花色）
 	if player.team != current_bid["team"]:
 		if count > current_bid["count"]:
 			return true
 
-	# 3. 无主特殊规则：小王=1张无主，大王=2张无主（最大）
+	# 3. No-trump special rule: Small Joker = one no-trump card, Big Joker = two no-trump cards.
 	if suit == Card.Suit.JOKER:
 		return count > current_bid["count"]
 
@@ -517,22 +492,20 @@ func make_bid(player: Player, suit: Card.Suit, count: int):
 	var suit_name = get_suit_name(suit)
 
 	if ui_manager:
-		var message = "%s 叫 %s" % [player.player_name, suit_name]
+		var message = GameConfig.text("player_bids") % [player.player_name, suit_name]
 		ui_manager.show_center_message(message, 2.0)
 		
 		if ui_manager.has_node("BiddingUI"):
 			var bidding_ui = ui_manager.get_node("BiddingUI")
-			bidding_ui.update_current_bid("当前: %s - %s" % [player.player_name, suit_name])
+			bidding_ui.update_current_bid(GameConfig.text("current_bid") % [player.player_name, suit_name])
 
 func ai_make_bid(ai_player: Player):
-	"""AI叫牌逻辑"""
-	# 简化AI：检查手牌中当前级别的牌
+	"""AI bidding logic."""
 	var level_cards = []
 	for card in ai_player.hand:
 		if card.rank == current_level:
 			level_cards.append(card)
 	
-	# 如果有当前级别的对子，考虑叫牌或反主
 	if level_cards.size() >= 2:
 		var suit_counts = {}
 		for card in level_cards:
@@ -540,30 +513,27 @@ func ai_make_bid(ai_player: Player):
 				suit_counts[card.suit] = 0
 			suit_counts[card.suit] += 1
 		
-		# 找到对子
+		# findPair
 		for suit in suit_counts:
 			if suit_counts[suit] >= 2:
-				# 检查是否可以叫牌
 				if can_make_bid(ai_player, suit, 2):
 					make_bid(ai_player, suit, 2)
 					next_bidding_turn()
 					return
 	
-	# 如果有单张且还没人叫，就叫
 	if level_cards.size() >= 1 and current_bid["count"] == 0:
 		make_bid(ai_player, level_cards[0].suit, 1)
 		next_bidding_turn()
 		return
 	
-	# 否则不叫
 	next_bidding_turn()
 
 func next_bidding_turn():
-	"""下一个叫牌轮次"""
+	"""Advance to the next bid turn."""
 	bidding_round += 1
 	current_player_index = (current_player_index + 1) % 4
 	
-	# 禁用UI按钮
+	# disableUIbutton
 	if ui_manager and ui_manager.has_node("BiddingUI"):
 		var bidding_ui = ui_manager.get_node("BiddingUI")
 		bidding_ui.enable_buttons(false)
@@ -572,13 +542,12 @@ func next_bidding_turn():
 	process_bidding_turn()
 
 func finish_bidding():
-	"""结束叫牌阶段"""
-	# 隐藏叫牌UI
+	"""End the bidding phase."""
+	# hideBidUI
 	if ui_manager and ui_manager.has_node("BiddingUI"):
 		var bidding_ui = ui_manager.get_node("BiddingUI")
 		bidding_ui.hide_bidding_ui()
 	
-	# 如果没人叫牌，默认庄家队叫黑桃
 	if current_bid["count"] == 0:
 		trump_suit = Card.Suit.SPADE
 		current_bid["suit"] = trump_suit
@@ -586,42 +555,42 @@ func finish_bidding():
 		current_bid["player_id"] = dealer_index
 	else:
 		trump_suit = current_bid["suit"]
-		dealer_index = current_bid["player_id"]  # 叫到主的人成为庄家
+		dealer_index = current_bid["player_id"]
 	
 	if ui_manager:
 		ui_manager.update_trump_suit(get_trump_symbol())
-		ui_manager.show_center_message("队伍%d 叫到主: %s" % [current_bid["team"] + 1, get_trump_symbol()], 2.0)
+		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_symbol()], 2.0)
 	
 	await get_tree().create_timer(2.0).timeout
 	
-	# 进入埋底阶段
+	# enterBury bottom cardsphase
 	if players[dealer_index].player_type == Player.PlayerType.HUMAN:
 		start_burying_phase()
 	else:
 		await ai_bury_bottom()
 
 func get_suit_name(suit: Card.Suit) -> String:
-	"""获取花色名称"""
+	"""Return the display name for a suit."""
 	match suit:
-		Card.Suit.SPADE: return "黑桃♠"
-		Card.Suit.HEART: return "红心♥"
-		Card.Suit.CLUB: return "梅花♣"
-		Card.Suit.DIAMOND: return "方片♦"
-		Card.Suit.JOKER: return "无主👑"
+		Card.Suit.SPADE: return GameConfig.text("suit_spade")
+		Card.Suit.HEART: return GameConfig.text("suit_heart")
+		Card.Suit.CLUB: return GameConfig.text("suit_club")
+		Card.Suit.DIAMOND: return GameConfig.text("suit_diamond")
+		Card.Suit.JOKER: return GameConfig.text("suit_no_trump")
 		_: return "?"
 
 # =====================================
-# 埋底阶段
+# Bury bottom cardsphase
 # =====================================
 
 func start_burying_phase():
-	"""开始埋底阶段"""
-	print("=== start_burying_phase() 被调用 ===")
-	print("当前阶段变更为：BURYING")
+	"""Start the burying phase."""
+	print("=== start_burying_phase() called ===")
+	print("Current phase changed to BURYING")
 	current_phase = GamePhase.BURYING
 
 	var dealer = players[dealer_index]
-	print("庄家：", dealer.player_name, " 收到底牌，手牌数：", dealer.hand.size())
+	print("Dealer ", dealer.player_name, " receives bottom cards. Hand size: ", dealer.hand.size())
 
 	dealer.receive_cards(bottom_cards, false)
 	bottom_cards.clear()
@@ -630,38 +599,35 @@ func start_burying_phase():
 	dealer.clear_selection()
 	dealer.set_card_selectable(true)
 
-	print("底牌发放完成，庄家手牌数：", dealer.hand.size())
+	print("Bottom cards dealt. Dealer hand size: ", dealer.hand.size())
 
-	# ヒント色を適用してからおすすめカードを自動選択
 	_apply_bury_hints(dealer)
-	var suggested = choose_ai_bury_cards(dealer)
-	dealer.pre_select_cards(suggested)
 
 	if ui_manager:
-		ui_manager.update_turn_message("埋底：赤=NG / 黄=得点牌 / 緑=安全 （変更できます）")
-		ui_manager.show_center_message("おすすめ8枚を選択しました（変更可）", 2.5)
+		ui_manager.update_turn_message(GameConfig.text("bury_hint"))
+		ui_manager.show_center_message(GameConfig.text("suggested_bury"), 2.5)
 		ui_manager.show_bury_button(true)
-		ui_manager.update_selected_count(dealer.selected_cards.size(), 8)
-		ui_manager.set_bury_button_enabled(dealer.selected_cards.size() == 8)
+		ui_manager.update_selected_count(0, 8)
+		ui_manager.set_bury_button_enabled(false)
 
 func _on_bury_cards_pressed():
-	"""玩家点击埋底按钮"""
-	print("=== _on_bury_cards_pressed() 被调用 ===")
-	print("当前阶段：", current_phase)
+	"""Player pressed the bury button."""
+	print("=== _on_bury_cards_pressed() called ===")
+	print("Current phase: ", current_phase)
 
 	if current_phase != GamePhase.BURYING:
-		print("警告：当前不是埋底阶段，忽略埋底操作")
+		print("Warning: not in burying phase; ignoring bury action")
 		return
 
 	var dealer = players[dealer_index]
 
 	if dealer.selected_cards.size() != 8:
-		print("选中的牌数量不对：", dealer.selected_cards.size(), " 需要8张")
+		print("Wrong selected card count: ", dealer.selected_cards.size(), "; expected 8")
 		if ui_manager:
-			ui_manager.show_center_message("请选择正好8张牌!", 1.5)
+			ui_manager.show_center_message(GameConfig.text("select_exact_bury"), 1.5)
 		return
 
-	print("埋底操作：从 ", dealer.hand.size(), " 张手牌中移除 8 张")
+	print("Bury action: remove 8 cards from hand size ", dealer.hand.size())
 
 	for card in dealer.selected_cards:
 		bottom_cards.append(card)
@@ -680,19 +646,19 @@ func _on_bury_cards_pressed():
 	dealer.update_hand_display()
 	dealer.set_card_selectable(false)
 
-	print("埋底完成，庄家剩余手牌：", dealer.hand.size())
+	print("Bury complete. Dealer remaining hand size: ", dealer.hand.size())
 
 	if ui_manager:
 		ui_manager.show_bury_button(false)
-		ui_manager.show_center_message("埋底完成", 1.5)
+		ui_manager.show_center_message(GameConfig.text("bury_complete"), 1.5)
 
-	print("等待1.5秒后进入出牌阶段...")
+	print("Waiting 1.5 seconds before entering playing phase...")
 	await get_tree().create_timer(1.5).timeout
-	print("调用 start_playing_phase()")
+	print("Calling start_playing_phase()")
 	await start_playing_phase()
 
 func auto_bury_for_player(dealer: Player):
-	"""自动埋底"""
+	"""Automatically bury bottom cards."""
 	var bury_cards = choose_ai_bury_cards(dealer)
 	
 	for card in bury_cards:
@@ -706,52 +672,49 @@ func auto_bury_for_player(dealer: Player):
 	dealer.update_hand_display()
 
 	if ui_manager:
-		ui_manager.show_center_message("埋底完成", 1.5)
+		ui_manager.show_center_message(GameConfig.text("bury_complete"), 1.5)
 	
 	await get_tree().create_timer(1.5).timeout
 	await start_playing_phase()
 
 func ai_bury_bottom():
-	"""AI埋底"""
-	print("=== ai_bury_bottom() 被调用 ===")
+	"""AI buries bottom cards."""
+	print("=== ai_bury_bottom() called ===")
 	current_phase = GamePhase.BURYING
 	for player in players:
 		player.set_card_selectable(false)
 	if ui_manager:
-		ui_manager.update_turn_message("AI庄家正在埋底...")
+		ui_manager.update_turn_message(GameConfig.text("ai_burying"))
 		ui_manager.show_bury_button(false)
 		ui_manager.set_buttons_enabled(false)
 
 	var dealer = players[dealer_index]
-	print("AI庄家：", dealer.player_name, " 开始埋底")
+	print("AI dealer ", dealer.player_name, " starts burying cards")
 
 	dealer.receive_cards(bottom_cards, false)
 	bottom_cards.clear()
 	dealer.sort_hand(true, trump_suit, current_level)
 	dealer.update_hand_display()
 
-	print("等待1.5秒...")
+	print("Waiting 1.5 seconds...")
 	await get_tree().create_timer(1.5).timeout
-	print("调用 auto_bury_for_player()")
+	print("Calling auto_bury_for_player()")
 	await auto_bury_for_player(dealer)
 
 func _apply_bury_hints(dealer: Player):
+	var suggested = choose_ai_bury_cards(dealer)
 	for card in dealer.hand:
-		card.set_trump(trump_suit, current_level)
-		card.set_bury_hint(_get_bury_hint_level(card))
-
-func _get_bury_hint_level(card: Card) -> int:
-	if card.suit == Card.Suit.JOKER or card.rank == current_level or card.is_trump:
-		return 3  # 赤：絶対NG
-	if card.points > 0:
-		return 2  # 黄：得点牌・注意
-	return 1        # 緑：安全
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
+		card.set_hint("bury", suggested.has(card))
 
 func _clear_bury_hints(dealer: Player):
 	for card in dealer.hand:
-		card.clear_bury_hint()
+		card.clear_hint("bury")
 
 func _apply_play_hints():
+	if not GameConfig.play_hints_enabled:
+		_clear_play_hints()
+		return
 	if players.is_empty():
 		return
 	var human = players[0]
@@ -759,13 +722,19 @@ func _apply_play_hints():
 		return
 	var suggested = choose_ai_play(human)
 	for card in human.hand:
-		card.set_play_hint(suggested.has(card))
+		card.set_hint("play", suggested.has(card))
 
 func _clear_play_hints():
 	if players.is_empty():
 		return
 	for card in players[0].hand:
-		card.set_play_hint(false)
+		card.set_hint("play", false)
+
+func _on_play_hints_changed(enabled: bool):
+	if not enabled:
+		_clear_play_hints()
+	elif current_phase == GamePhase.PLAYING and current_player_index == 0:
+		_apply_play_hints()
 
 func choose_ai_bury_cards(dealer: Player) -> Array:
 	var sorted_hand = dealer.hand.duplicate()
@@ -775,7 +744,7 @@ func choose_ai_bury_cards(dealer: Player) -> Array:
 	return sorted_hand.slice(0, min(8, sorted_hand.size()))
 
 func get_ai_bury_score(card: Card, hand: Array[Card]) -> float:
-	card.set_trump(trump_suit, current_level)
+	ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 	var score = 100.0 - get_ai_card_cost(card)
 
 	if card.is_trump:
@@ -801,33 +770,30 @@ func is_card_part_of_pair(card: Card, hand: Array[Card]) -> bool:
 	return false
 
 # =====================================
-# 出牌阶段
+# Play cardsphase
 # =====================================
 
 func start_playing_phase():
-	"""开始出牌阶段"""
-	print("=== start_playing_phase() 被调用 ===")
-	print("当前阶段变更为：PLAYING")
+	"""Start the playing phase."""
+	print("=== start_playing_phase() called ===")
+	print("Current phase changed to PLAYING")
 	current_phase = GamePhase.PLAYING
 
-	# 重新整理所有玩家的手牌（主牌放最后）
 	for player in players:
 		player.current_rank = current_level
-		# 设置所有牌的主牌状态
 		for card in player.hand:
-			card.set_trump(trump_suit, current_level)
-		# 重新排序：主牌和当前级别的牌放在最后，按正确顺序排列
+			ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 		player.sort_hand(true, trump_suit, current_level)
-		# 更新显示
+		# updateshow
 		player.update_hand_display(true)
 
 	current_player_index = dealer_index
 	refresh_all_card_counts()
-	print("庄家（叫牌成功的玩家）：", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
-	print("首先出牌的玩家：", players[current_player_index].player_name)
+	print("Dealer: ", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
+	print("First player to play: ", players[current_player_index].player_name)
 
 	if ui_manager:
-		ui_manager.update_turn_message("轮到 %s 出牌" % players[current_player_index].player_name)
+		ui_manager.update_turn_message(get_turn_message(current_player_index))
 		ui_manager.highlight_current_player(current_player_index)
 		ui_manager.show_bury_button(false)
 
@@ -835,11 +801,11 @@ func start_playing_phase():
 	update_turn_interaction()
 
 	if players[current_player_index].player_type == Player.PlayerType.AI:
-		print("首位出牌的是AI，等待1秒后让AI出牌")
+		print("First player is AI; waiting 1 second before AI play")
 		await get_tree().create_timer(1.0).timeout
 		ai_play_turn(players[current_player_index])
 	else:
-		print("首位出牌的是人类玩家，等待玩家操作")
+		print("First player is human; waiting for player input")
 
 func get_trump_symbol() -> String:
 	match trump_suit:
@@ -851,7 +817,36 @@ func get_trump_symbol() -> String:
 		_: return "?"
 
 func get_team_name(team: int) -> String:
-	return "队伍%d" % [team + 1]
+	return GameConfig.text("team_name") % [team + 1]
+
+func get_player_display_name(player_id: int) -> String:
+	return GameConfig.text("player_name") % [player_id + 1]
+
+func get_turn_message(player_id: int) -> String:
+	return GameConfig.text("turn_play_cards") % get_player_display_name(player_id)
+
+func refresh_player_names():
+	for player in players:
+		player.player_name = get_player_display_name(player.player_id)
+
+func _on_language_changed(_language: String):
+	refresh_player_names()
+	if ui_manager == null:
+		return
+	if current_phase == GamePhase.PLAYING and not players.is_empty():
+		ui_manager.update_turn_message(get_turn_message(current_player_index))
+	elif current_phase == GamePhase.BURYING:
+		if players[dealer_index].player_type == Player.PlayerType.HUMAN:
+			ui_manager.update_turn_message(GameConfig.text("bury_hint"))
+		else:
+			ui_manager.update_turn_message(GameConfig.text("ai_burying"))
+	elif current_phase == GamePhase.DEALING_AND_BIDDING:
+		ui_manager.update_turn_message(GameConfig.text("dealing"))
+	if not last_trick_summary.is_empty() and ui_manager.has_method("update_last_trick"):
+		for entry in last_trick_summary:
+			if entry.has("player_id"):
+				entry["player_name"] = get_player_display_name(entry["player_id"])
+		ui_manager.update_last_trick(last_trick_summary)
 
 func get_current_player() -> Player:
 	return players[current_player_index]
@@ -879,7 +874,7 @@ func update_turn_interaction():
 		_clear_play_hints()
 
 func on_human_selection_changed(_count: int):
-	"""人类玩家选牌变化后刷新操作按钮状态"""
+	"""Refresh action buttons after the human player selection changes."""
 	update_action_controls()
 
 func update_action_controls():
@@ -911,7 +906,7 @@ func is_human_selected_play_valid() -> bool:
 		return false
 
 	for card in human_player.selected_cards:
-		card.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 
 	if not GameRules.validate_play(human_player.selected_cards, human_player.hand):
 		return false
@@ -929,7 +924,7 @@ func is_human_selected_play_valid() -> bool:
 	return GameRules.can_follow(pattern, lead_pattern, human_player.hand, trump_suit, current_level)
 
 func _on_play_cards_pressed():
-	"""出牌按钮被点击"""
+	"""Play button pressed."""
 	if current_phase != GamePhase.PLAYING:
 		return
 	_clear_play_hints()
@@ -937,37 +932,37 @@ func _on_play_cards_pressed():
 	var human_player = players[0]
 	if current_player_index != human_player.player_id:
 		if ui_manager:
-			ui_manager.show_center_message("还没轮到你出牌", 1.0)
+			ui_manager.show_center_message(GameConfig.text("not_your_turn"), 1.0)
 		return
 
 	if human_player.selected_cards.is_empty():
 		if ui_manager:
-			ui_manager.show_center_message("请先选择要出的牌!", 1.5)
+			ui_manager.show_center_message(GameConfig.text("select_cards_first"), 1.5)
 		return
 
 	if not is_human_selected_play_valid():
 		if ui_manager:
-			ui_manager.show_center_message("选择的牌不符合出牌规则!", 1.5)
+			ui_manager.show_center_message(GameConfig.text("selected_cards_invalid"), 1.5)
 		update_action_controls()
 		return
 	
 	for card in human_player.selected_cards:
-		card.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 	
 	var pattern = GameRules.identify_pattern(human_player.selected_cards, trump_suit, current_level)
 
 	if not GameRules.validate_play(human_player.selected_cards, human_player.hand):
 		if ui_manager:
-			ui_manager.show_center_message("无效的出牌!", 1.5)
+			ui_manager.show_center_message(GameConfig.text("invalid_play"), 1.5)
 		return
 	
 	if current_trick.is_empty():
-		# 首家出牌
+		# lead playerPlay cards
 		if pattern.pattern_type == GameRules.CardPattern.THROW:
-			# 甩牌需要验证
+			# Throwrequiresvalidate
 			if not validate_throw(human_player, pattern):
 				if ui_manager:
-					ui_manager.show_center_message("甩牌失败! 其他人能管上", 2.0)
+					ui_manager.show_center_message(GameConfig.text("throw_failed"), 2.0)
 				update_action_controls()
 				return
 		
@@ -982,19 +977,19 @@ func _on_play_cards_pressed():
 
 
 			if ui_manager:
-				ui_manager.show_center_message("出牌成功!", 1.0)
+				ui_manager.show_center_message(GameConfig.text("cards_played"), 1.0)
 
 			next_player_turn()
 		else:
 			if ui_manager:
-				ui_manager.show_center_message("出牌失败!", 1.5)
+				ui_manager.show_center_message(GameConfig.text("play_failed"), 1.5)
 	else:
-		# 跟牌
+		# Follow suit
 		var lead_pattern = current_trick[0]["pattern"]
 		
 		if not GameRules.can_follow(pattern, lead_pattern, human_player.hand, trump_suit, current_level):
 			if ui_manager:
-				ui_manager.show_center_message("跟牌不符合规则!", 1.5)
+				ui_manager.show_center_message(GameConfig.text("follow_invalid"), 1.5)
 			return
 		
 		if human_player.play_selected_cards():
@@ -1007,7 +1002,7 @@ func _on_play_cards_pressed():
 			})
 			
 			if ui_manager:
-				ui_manager.show_center_message("跟牌成功!", 1.0)
+				ui_manager.show_center_message(GameConfig.text("follow_accepted"), 1.0)
 			
 			if current_trick.size() == 4:
 				evaluate_trick()
@@ -1015,16 +1010,15 @@ func _on_play_cards_pressed():
 				next_player_turn()
 
 func validate_throw(player: Player, throw_pattern: GameRules.PlayPattern) -> bool:
-	"""验证甩牌是否成功"""
-	# 检查其他三家是否都管不上
+	"""Validate whether a throw succeeds."""
 	for i in range(1, 4):
 		var other_player = players[(player.player_id + i) % 4]
 		
-		# 更新手牌主牌状态
+		# updatehandTrumpstate
 		for card in other_player.hand:
-			card.set_trump(trump_suit, current_level)
+			ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 		
-		# 检查是否能管上甩出的任何一张牌
+		# Check whether any thrown card can be beaten.
 		for throw_card in throw_pattern.cards:
 			for hand_card in other_player.hand:
 				if can_beat_card(hand_card, throw_card):
@@ -1033,15 +1027,8 @@ func validate_throw(player: Player, throw_pattern: GameRules.PlayPattern) -> boo
 	return true
 
 func can_beat_card(card1: Card, card2: Card) -> bool:
-	"""检查card1是否能打过card2"""
-	return card1.compare_to(card2, trump_suit, current_level) > 0
-
-const CARD_ANIM_SOURCE = [
-	Vector2(640, 600),   # Player 1 (human)
-	Vector2(60,  300),   # Player 2 (AI left)
-	Vector2(640,  60),   # Player 3 (AI top)
-	Vector2(1220, 300),  # Player 4 (AI right)
-]
+	"""Check whether card1 beats card2."""
+	return ShengjiCardLogic.compare_cards(card1, card2, trump_suit, current_level) > 0
 
 func show_played_cards(player_id: int, cards: Array):
 	var center_position = play_area_positions[player_id]
@@ -1064,14 +1051,20 @@ func show_played_cards(player_id: int, cards: Array):
 		card.is_selectable = false
 
 		if player_id != 0:
-			# AI: アバター位置から出牌エリアへスライドアニメーション
-			card.position = CARD_ANIM_SOURCE[player_id]
+			# AI: アバターpositionからPlay cardsエリアへスライドアニメーション
+			card.position = get_card_anim_source(player_id)
 			var tween = card.create_tween()
 			tween.set_ease(Tween.EASE_OUT)
 			tween.set_trans(Tween.TRANS_CUBIC)
 			tween.tween_property(card, "position", target_pos, 0.30)
 		else:
 			card.global_position = target_pos
+
+func get_card_anim_source(player_id: int) -> Vector2:
+	var positions = get_player_positions()
+	if player_id >= 0 and player_id < positions.size():
+		return positions[player_id]
+	return get_table_size() * 0.5
 
 func get_played_card_spacing(card_count: int) -> float:
 	if card_count <= 1:
@@ -1085,12 +1078,12 @@ func get_played_card_spacing(card_count: int) -> float:
 	return max(spacing, PLAYED_CARD_MIN_SPACING)
 
 func next_player_turn():
-	"""下一个玩家"""
+	"""Advance to the next player."""
 	current_player_index = (current_player_index + 1) % 4
 	var current_player = players[current_player_index]
 	
 	if ui_manager:
-		ui_manager.update_turn_message("轮到 %s 出牌" % current_player.player_name)
+		ui_manager.update_turn_message(get_turn_message(current_player_index))
 		ui_manager.highlight_current_player(current_player_index)
 	update_turn_interaction()
 	
@@ -1099,18 +1092,17 @@ func next_player_turn():
 		ai_play_turn(current_player)
 
 func ai_play_turn(ai_player: Player):
-	"""AI出牌"""
-	print("=== ai_play_turn() 被调用 ===")
-	print("AI玩家：", ai_player.player_name, " (player_id=", ai_player.player_id, ")")
-	print("当前阶段：", current_phase)
+	"""AI plays cards."""
+	print("=== ai_play_turn() called ===")
+	print("AI player: ", ai_player.player_name, " (player_id=", ai_player.player_id, ")")
+	print("Current phase: ", current_phase)
 
-	# 安全检查：确保在出牌阶段才能出牌
 	if current_phase != GamePhase.PLAYING:
-		print("警告：当前不是出牌阶段，AI不能出牌！")
+		print("Warning: current phase is not PLAYING; AI cannot play")
 		return
 
 	for card in ai_player.hand:
-		card.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 	
 	var cards_to_play = choose_ai_play(ai_player)
 	
@@ -1142,7 +1134,7 @@ func ai_play_turn(ai_player: Player):
 			next_player_turn()
 
 func choose_ai_play(ai_player: Player) -> Array:
-	"""规则型AI：首出保留强牌，跟牌时按队友/对手当前赢牌状态决策"""
+	"""Rule-based AI: preserve strong leads and decide follow plays based on teammate/opponent trick state."""
 	if ai_player.hand.is_empty():
 		return []
 
@@ -1316,10 +1308,10 @@ func has_same_cards(cards_a: Array, cards_b: Array) -> bool:
 func get_same_suit_cards_for_lead(hand: Array[Card], lead_pattern: GameRules.PlayPattern) -> Array[Card]:
 	var same_suit_cards: Array[Card] = []
 	var lead_card = lead_pattern.cards[0]
-	lead_card.set_trump(trump_suit, current_level)
+	ShengjiCardLogic.apply_trump(lead_card, trump_suit, current_level)
 
 	for card in hand:
-		card.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 		if lead_card.is_trump:
 			if card.is_trump:
 				same_suit_cards.append(card)
@@ -1331,10 +1323,10 @@ func get_same_suit_cards_for_lead(hand: Array[Card], lead_pattern: GameRules.Pla
 func sort_cards_by_strength(cards: Array, ascending: bool) -> Array:
 	var sorted_cards = cards.duplicate()
 	for card in sorted_cards:
-		card.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 
 	sorted_cards.sort_custom(func(a, b):
-		var result = a.compare_to(b, trump_suit, current_level)
+		var result = ShengjiCardLogic.compare_cards(a, b, trump_suit, current_level)
 		if result == 0:
 			if a.suit != b.suit:
 				return a.suit < b.suit if ascending else a.suit > b.suit
@@ -1413,13 +1405,12 @@ func score_ai_lead_candidate(cards: Array, ai_player_id: int = 0) -> float:
 		GameRules.CardPattern.TRACTOR:
 			score -= 16.0
 
-	# 相手がこの花色（またはトランプ）を切らしている場合はペナルティ
 	if not cards.is_empty() and cards[0] is Card:
 		var lead_c: Card = cards[0]
-		lead_c.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(lead_c, trump_suit, current_level)
 		var void_key = VOID_TRUMP if lead_c.is_trump else lead_c.suit
 		if _any_opponent_void(ai_player_id, void_key):
-			score += 22.0  # リスク増：相手が自由牌を出せる
+			score += 22.0
 
 	return score
 
@@ -1441,7 +1432,7 @@ func score_ai_follow_candidate(cards: Array, teammate_winning: bool, has_winning
 	return cost + points * 5.0
 
 func get_ai_card_cost(card: Card) -> float:
-	card.set_trump(trump_suit, current_level)
+	ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 	var cost = float(card.rank)
 
 	if card.suit == Card.Suit.JOKER:
@@ -1465,7 +1456,7 @@ func is_all_trump_cards(cards: Array) -> bool:
 	if cards.is_empty():
 		return false
 	for card in cards:
-		card.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 		if not card.is_trump:
 			return false
 	return true
@@ -1500,17 +1491,17 @@ func get_current_trick_points() -> int:
 	return points
 
 func evaluate_trick():
-	"""评估本轮"""
-	print("=== 评估本轮 ===")
+	"""Evaluate this trick."""
+	print("=== Evaluate this trick ===")
 	for player in players:
 		player.set_card_selectable(false)
 	if ui_manager:
 		ui_manager.set_buttons_enabled(false)
 
-	print("当前回合出牌顺序：")
+	print("Current trick play order:")
 	for i in range(current_trick.size()):
 		var play = current_trick[i]
-		print("  ", i+1, ". ", players[play["player_id"]].player_name, " 出了 ", play["cards"].size(), " 张牌")
+		print("  ", i+1, ". ", players[play["player_id"]].player_name, " played ", play["cards"].size(), " cards")
 
 	var lead_play = current_trick[0]
 	var winner_play = lead_play
@@ -1523,7 +1514,7 @@ func evaluate_trick():
 			winner_play = current_play
 
 	var winner = players[winner_play["player_id"]]
-	print("本轮赢家：", winner.player_name, " (player_id=", winner_play["player_id"], ")")
+	print("Trick winner: ", winner.player_name, " (player_id=", winner_play["player_id"], ")")
 	SoundManager.play_trick_win()
 
 	var points = 0
@@ -1534,18 +1525,17 @@ func evaluate_trick():
 
 	if ui_manager:
 		ui_manager.update_team_scores(team_scores[0], team_scores[1])
-		ui_manager.show_center_message("%s 赢得本轮，得 %d 分" % [winner.player_name, points], 2.0)
+		ui_manager.show_center_message(GameConfig.text("trick_won") % [winner.player_name, points], 2.0)
 
-	# 底牌倍率とトリック情報はカード解放前に計算・保存する
 	_update_void_tracking()
 	var bottom_multiplier = calculate_bottom_multiplier(winner_play)
 
-	# 前トリック情報を保存（カード解放前）
 	last_trick_summary.clear()
 	for play in current_trick:
 		var cards_text = " ".join(play["cards"].map(func(c): return c.get_display_name()))
 		last_trick_summary.append({
-			"player_name": players[play["player_id"]].player_name,
+			"player_id": play["player_id"],
+			"player_name": get_player_display_name(play["player_id"]),
 			"cards_text": cards_text,
 			"is_winner": play["player_id"] == winner_play["player_id"]
 		})
@@ -1570,24 +1560,24 @@ func evaluate_trick():
 		if winner.team == current_bid["team"]:
 			team_scores[current_bid["team"]] += bottom_points * multiplier
 			if ui_manager:
-				ui_manager.show_center_message("庄家队扣底成功! +%d分 (x%d)" % [bottom_points * multiplier, multiplier], 2.0)
+				ui_manager.show_center_message(GameConfig.text("dealer_captures_bottom") % [bottom_points * multiplier, multiplier], 2.0)
 				ui_manager.update_team_scores(team_scores[0], team_scores[1])
 		else:
 			var opponent_team = 1 - current_bid["team"]
 			team_scores[opponent_team] += bottom_points * multiplier
 			if ui_manager:
-				ui_manager.show_center_message("对手队抠底成功! +%d分 (x%d)" % [bottom_points * multiplier, multiplier], 2.0)
+				ui_manager.show_center_message(GameConfig.text("opponent_captures_bottom") % [bottom_points * multiplier, multiplier], 2.0)
 				ui_manager.update_team_scores(team_scores[0], team_scores[1])
 		
 		await get_tree().create_timer(2.0).timeout
 		end_round()
 	else:
 		current_player_index = winner_play["player_id"]
-		print("下一轮由赢家先出牌：", players[current_player_index].player_name, " (player_id=", current_player_index, ")")
+		print("Next trick starts with winner: ", players[current_player_index].player_name, " (player_id=", current_player_index, ")")
 		await get_tree().create_timer(1.0).timeout
 
 		if ui_manager:
-			ui_manager.update_turn_message("轮到 %s 出牌" % players[current_player_index].player_name)
+			ui_manager.update_turn_message(get_turn_message(current_player_index))
 			ui_manager.highlight_current_player(current_player_index)
 		update_turn_interaction()
 
@@ -1596,27 +1586,27 @@ func evaluate_trick():
 			ai_play_turn(players[current_player_index])
 
 # =====================================
-# 结束和升级
+# End and level up
 # =====================================
 
 func _update_void_tracking():
 	if current_trick.size() < 2:
 		return
 	var lead_card = current_trick[0]["cards"][0]
-	lead_card.set_trump(trump_suit, current_level)
+	ShengjiCardLogic.apply_trump(lead_card, trump_suit, current_level)
 	for i in range(1, current_trick.size()):
 		var play = current_trick[i]
 		var played_card = play["cards"][0]
-		played_card.set_trump(trump_suit, current_level)
+		ShengjiCardLogic.apply_trump(played_card, trump_suit, current_level)
 		var pid = play["player_id"]
 		if lead_card.is_trump:
 			if not played_card.is_trump and not player_void_suits[pid].has(VOID_TRUMP):
 				player_void_suits[pid].append(VOID_TRUMP)
-				print("▶ ", players[pid].player_name, " トランプ切れ確定")
+				print("▶ ", players[pid].player_name, " is void in trump")
 		else:
 			if (played_card.is_trump or played_card.suit != lead_card.suit) and not player_void_suits[pid].has(lead_card.suit):
 				player_void_suits[pid].append(lead_card.suit)
-				print("▶ ", players[pid].player_name, " ", lead_card.suit, " 切れ確定")
+				print("▶ ", players[pid].player_name, " is void in suit ", lead_card.suit)
 
 func _any_opponent_void(ai_player_id: int, suit_key) -> bool:
 	for i in range(4):
@@ -1626,7 +1616,6 @@ func _any_opponent_void(ai_player_id: int, suit_key) -> bool:
 	return false
 
 func calculate_bottom_multiplier(winning_play: Dictionary) -> int:
-	# 倍率ルール: ×2基本、小王対→×4、大王対→×8、両ジョーカー対→×16
 	var small_joker_count = 0
 	var big_joker_count = 0
 	for card in winning_play.get("cards", []):
@@ -1644,28 +1633,28 @@ func calculate_bottom_multiplier(winning_play: Dictionary) -> int:
 	return 2
 
 func end_round():
-	"""本局结束，计算升级"""
+	"""End this round and calculate level changes."""
 	current_phase = GamePhase.SCORING
 
-	print("=== 本局结束，开始计算升级 ===")
-	var dealer_team = current_bid["team"]  # 庄家队（叫牌成功的队）
-	var attacker_team = 1 - dealer_team    # 对手队（闲家）
-	var attacker_score = team_scores[attacker_team]  # 对手队得分
+	print("=== Round ended; calculate level changes ===")
+	var dealer_team = current_bid["team"]  # Team that won the bid.
+	var attacker_team = 1 - dealer_team    # Non-dealer team.
+	var attacker_score = team_scores[attacker_team]
 
-	print("庄家队：队伍", dealer_team + 1, " 得分：", team_scores[dealer_team])
-	print("对手队：队伍", attacker_team + 1, " 得分：", attacker_score)
+	print("Dealer team: Team ", dealer_team + 1, " score: ", team_scores[dealer_team])
+	print("Opponent team: Team ", attacker_team + 1, " score: ", attacker_score)
 
 	var levels_to_advance = 0
 	var winning_team = -1
 
-	# 标准升级规则（攻撃チームの得点による）:
-	# 攻撃チーム 0点       : 庄家チーム +3级
-	# 攻撃チーム 1〜39点   : 庄家チーム +2级
-	# 攻撃チーム 40〜79点  : 庄家チーム +1级
-	# 攻撃チーム 80〜119点 : 攻撃チーム +1级（攻撃勝利・庄家交代）
-	# 攻撃チーム 120〜159点: 攻撃チーム +2级
-	# 攻撃チーム 160〜199点: 攻撃チーム +3级
-	# 攻撃チーム 200点以上 : 攻撃チーム +4级
+	# Standard level-change rules based on attacker score:
+	# Attacker 0 points: dealer team +3 levels
+	# Attacker 1-39 points: dealer team +2 levels
+	# Attacker 40-79 points: dealer team +1 level
+	# Attacker 80-119 points: attacker team +1 level and dealer rotates
+	# Attacker 120-159 points: attacker team +2 levels
+	# Attacker 160-199 points: attacker team +3 levels
+	# Attacker 200+ points: attacker team +4 levels
 
 	if attacker_score >= 200:
 		levels_to_advance = 4
@@ -1673,53 +1662,53 @@ func end_round():
 		team_levels[attacker_team] += levels_to_advance
 		dealer_index = (dealer_index + 1) % 4
 		if ui_manager:
-			ui_manager.show_center_message("队伍%d 大胜！升%d级！" % [attacker_team + 1, levels_to_advance], 3.0)
+			ui_manager.show_center_message(GameConfig.text("team_dominates_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
 	elif attacker_score >= 160:
 		levels_to_advance = 3
 		winning_team = attacker_team
 		team_levels[attacker_team] += levels_to_advance
 		dealer_index = (dealer_index + 1) % 4
 		if ui_manager:
-			ui_manager.show_center_message("队伍%d 获胜！升%d级！" % [attacker_team + 1, levels_to_advance], 3.0)
+			ui_manager.show_center_message(GameConfig.text("team_wins_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
 	elif attacker_score >= 120:
 		levels_to_advance = 2
 		winning_team = attacker_team
 		team_levels[attacker_team] += levels_to_advance
 		dealer_index = (dealer_index + 1) % 4
 		if ui_manager:
-			ui_manager.show_center_message("队伍%d 获胜！升%d级！" % [attacker_team + 1, levels_to_advance], 3.0)
+			ui_manager.show_center_message(GameConfig.text("team_wins_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
 	elif attacker_score >= 80:
-		# 80点以上 = 攻撃チーム勝利・庄家交代（標準ルール）
+		# 80+ points means the attacker team wins and the dealer rotates.
 		levels_to_advance = 1
 		winning_team = attacker_team
 		team_levels[attacker_team] += levels_to_advance
 		dealer_index = (dealer_index + 1) % 4
 		if ui_manager:
-			ui_manager.show_center_message("队伍%d 获胜！升%d级！" % [attacker_team + 1, levels_to_advance], 3.0)
+			ui_manager.show_center_message(GameConfig.text("team_wins_levels") % [get_team_name(attacker_team), levels_to_advance], 3.0)
 	elif attacker_score >= 40:
-		# 庄家守住，升1级
+		# Dealer team holds and gains 1 level.
 		levels_to_advance = 1
 		winning_team = dealer_team
 		team_levels[dealer_team] += levels_to_advance
 		if ui_manager:
-			ui_manager.show_center_message("队伍%d 守住！升%d级！" % [dealer_team + 1, levels_to_advance], 3.0)
+			ui_manager.show_center_message(GameConfig.text("team_holds_levels") % [get_team_name(dealer_team), levels_to_advance], 3.0)
 	elif attacker_score >= 1:
-		# 庄家守住，升2级
+		# Dealer team holds and gains 2 levels.
 		levels_to_advance = 2
 		winning_team = dealer_team
 		team_levels[dealer_team] += levels_to_advance
 		if ui_manager:
-			ui_manager.show_center_message("队伍%d 守住！升%d级！" % [dealer_team + 1, levels_to_advance], 3.0)
+			ui_manager.show_center_message(GameConfig.text("team_holds_levels") % [get_team_name(dealer_team), levels_to_advance], 3.0)
 	else:
-		# 攻撃チーム0点 = 庄家チーム大勝、+3级
+		# Attacker 0 points means a dominant dealer-team win, +3 levels.
 		levels_to_advance = 3
 		winning_team = dealer_team
 		team_levels[dealer_team] += levels_to_advance
 		if ui_manager:
-			ui_manager.show_center_message("队伍%d 大胜！升%d级！" % [dealer_team + 1, levels_to_advance], 3.0)
+			ui_manager.show_center_message(GameConfig.text("team_dominates_levels") % [get_team_name(dealer_team), levels_to_advance], 3.0)
 
-	print("获胜队伍：队伍", winning_team + 1, " 升级：", levels_to_advance)
-	print("当前等级 - 队伍1：", team_levels[0], " 队伍2：", team_levels[1])
+	print("Winning team: Team ", winning_team + 1, " level increase: ", levels_to_advance)
+	print("Current levels - Team 1: ", team_levels[0], " Team 2: ", team_levels[1])
 	SoundManager.play_level_up()
 
 	current_level = team_levels[players[dealer_index].team]
@@ -1730,18 +1719,17 @@ func end_round():
 		SoundManager.play_game_over()
 		show_game_over_screen()
 	else:
-		# 继续下一局
 		start_new_round()
 
 func check_game_over() -> bool:
-	"""检查游戏是否结束"""
+	"""Check whether the game is over."""
 	# A = 14
 	if team_levels[0] >= 14 or team_levels[1] >= 14:
 		return true
 	return false
 
 func show_game_over_screen():
-	"""显示游戏结束画面"""
+	"""Show the game over screen."""
 	var winner_team = 0 if team_levels[0] >= 14 else 1
 	
 	if ui_manager and ui_manager.has_node("GameOverUI"):
@@ -1751,26 +1739,26 @@ func show_game_over_screen():
 	game_over.emit(winner_team)
 
 func restart_game():
-	"""重新开始游戏"""
-	# 重置所有状态
+	"""Restart the game."""
+	# Reset all state.
 	cleanup_round_cards()
 	team_levels = [2, 2]
 	current_level = 2
 	total_rounds_played = 0
 	dealer_index = 0
 	
-	# 隐藏游戏结束界面
+	# Hide the game over screen.
 	if ui_manager and ui_manager.has_node("GameOverUI"):
 		var game_over_ui = ui_manager.get_node("GameOverUI")
 		game_over_ui.hide_game_over()
 	
-	# 开始新游戏
+	# Start a new game.
 	start_new_round()
 
 func get_pattern_name(pattern_type: GameRules.CardPattern) -> String:
 	match pattern_type:
-		GameRules.CardPattern.SINGLE: return "单张"
-		GameRules.CardPattern.PAIR: return "对子"
-		GameRules.CardPattern.TRACTOR: return "拖拉机"
-		GameRules.CardPattern.THROW: return "甩牌"
-		_: return "无效"
+		GameRules.CardPattern.SINGLE: return "Single"
+		GameRules.CardPattern.PAIR: return "Pair"
+		GameRules.CardPattern.TRACTOR: return "Tractor"
+		GameRules.CardPattern.THROW: return "Throw"
+		_: return "Invalid"

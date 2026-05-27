@@ -1,4 +1,3 @@
-# ui_manager.gd - UI管理
 extends CanvasLayer
 
 var info_panel: Panel
@@ -7,6 +6,8 @@ var trump_label: Label
 
 var team1_score_label: Label
 var team2_score_label: Label
+var team1_title_label: Label
+var team2_title_label: Label
 
 var turn_panel: Panel
 var turn_label: Label
@@ -21,6 +22,7 @@ var selected_count_label: Label
 
 var player_avatars: Array[Panel] = []
 var player_name_labels: Array[Label] = []
+var player_team_labels: Array[Label] = []
 var player_card_count_labels: Array[Label] = []
 
 var bidding_ui: Node
@@ -30,6 +32,12 @@ var last_trick_panel: Panel
 var last_trick_label: Label
 var last_trick_button: Button
 var last_trick_visible: bool = false
+var _current_level: int = 2
+var _current_trump_symbol: String = "♠"
+var _team1_score: int = 0
+var _team2_score: int = 0
+var _selected_count: int = 0
+var _selected_max: int = 8
 
 signal play_cards_pressed
 signal bury_cards_pressed
@@ -37,11 +45,20 @@ signal bury_cards_pressed
 const C_GOLD   = Color(0.941, 0.788, 0.416)
 const C_BG     = Color(0.04,  0.09,  0.14,  0.92)
 const C_BORDER = Color(0.941, 0.788, 0.416, 0.30)
+const CENTER_MESSAGE_MIN_WIDTH = 552.0
+const CENTER_MESSAGE_MIN_HEIGHT = 74.0
+const CENTER_MESSAGE_X_PADDING = 56.0
+const CENTER_MESSAGE_Y_PADDING = 22.0
 
 func _ready():
 	layer = 1
+	if not GameConfig.language_changed.is_connected(_on_language_changed):
+		GameConfig.language_changed.connect(_on_language_changed)
 	create_ui()
 	create_phase2_ui()
+	apply_layout()
+	if not get_viewport().size_changed.is_connected(apply_layout):
+		get_viewport().size_changed.connect(apply_layout)
 
 func make_panel_style(bg_color: Color, border_color: Color = C_BORDER) -> StyleBoxFlat:
 	var style = StyleBoxFlat.new()
@@ -83,7 +100,6 @@ func style_play_button(button: Button):
 	button.add_theme_color_override("font_disabled_color", Color(0.08, 0.06, 0.02, 0.50))
 
 func create_ui():
-	# ── 左上情報パネル ──────────────────────────────
 	info_panel = Panel.new()
 	info_panel.position = Vector2(18, 18)
 	info_panel.size = Vector2(250, 156)
@@ -98,13 +114,13 @@ func create_ui():
 	info_panel.add_child(info_container)
 
 	level_label = Label.new()
-	level_label.text = "現在レベル: 2"
+	level_label.text = GameConfig.text("current_level") % "2"
 	level_label.add_theme_font_size_override("font_size", 18)
 	level_label.add_theme_color_override("font_color", Color(C_GOLD, 0.90))
 	info_container.add_child(level_label)
 
 	trump_label = Label.new()
-	trump_label.text = "主スート: ♠"
+	trump_label.text = GameConfig.text("trump_suit") % "♠"
 	trump_label.add_theme_font_size_override("font_size", 18)
 	trump_label.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
 	info_container.add_child(trump_label)
@@ -119,29 +135,28 @@ func create_ui():
 	score_container.add_theme_constant_override("v_separation", 4)
 	info_container.add_child(score_container)
 
-	var team1_title = Label.new()
-	team1_title.text = "チームA"
-	team1_title.add_theme_font_size_override("font_size", 16)
-	team1_title.add_theme_color_override("font_color", Color(0.35, 0.85, 0.45))
-	score_container.add_child(team1_title)
+	team1_title_label = Label.new()
+	team1_title_label.text = GameConfig.text("team_a")
+	team1_title_label.add_theme_font_size_override("font_size", 16)
+	team1_title_label.add_theme_color_override("font_color", Color(0.35, 0.85, 0.45))
+	score_container.add_child(team1_title_label)
 
-	var team2_title = Label.new()
-	team2_title.text = "チームB"
-	team2_title.add_theme_font_size_override("font_size", 16)
-	team2_title.add_theme_color_override("font_color", Color(0.95, 0.42, 0.42))
-	score_container.add_child(team2_title)
+	team2_title_label = Label.new()
+	team2_title_label.text = GameConfig.text("team_b")
+	team2_title_label.add_theme_font_size_override("font_size", 16)
+	team2_title_label.add_theme_color_override("font_color", Color(0.95, 0.42, 0.42))
+	score_container.add_child(team2_title_label)
 
 	team1_score_label = Label.new()
-	team1_score_label.text = "0点"
+	team1_score_label.text = GameConfig.text("points") % 0
 	team1_score_label.add_theme_font_size_override("font_size", 20)
 	score_container.add_child(team1_score_label)
 
 	team2_score_label = Label.new()
-	team2_score_label.text = "0点"
+	team2_score_label.text = GameConfig.text("points") % 0
 	team2_score_label.add_theme_font_size_override("font_size", 20)
 	score_container.add_child(team2_score_label)
 
-	# ── ターン表示 ──────────────────────────────────
 	turn_panel = Panel.new()
 	turn_panel.position = Vector2(354, 18)
 	turn_panel.size = Vector2(572, 52)
@@ -152,7 +167,7 @@ func create_ui():
 	turn_label = Label.new()
 	turn_label.position = Vector2(12, 7)
 	turn_label.size = Vector2(548, 38)
-	turn_label.text = "あなたの番"
+	turn_label.text = GameConfig.text("your_turn")
 	turn_label.add_theme_font_size_override("font_size", 20)
 	turn_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	turn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -170,7 +185,7 @@ func create_ui():
 	selected_count_label = Label.new()
 	selected_count_label.position = Vector2(-20, -34)
 	selected_count_label.size = Vector2(200, 28)
-	selected_count_label.text = "選択: 0/8"
+	selected_count_label.text = GameConfig.text("selected") % [0, 8]
 	selected_count_label.add_theme_font_size_override("font_size", 17)
 	selected_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	selected_count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -183,7 +198,7 @@ func create_ui():
 	action_panel.add_child(button_container)
 
 	play_button = Button.new()
-	play_button.text = "出す"
+	play_button.text = GameConfig.text("play")
 	play_button.position = Vector2.ZERO
 	play_button.size = Vector2(140, 48)
 	play_button.add_theme_font_size_override("font_size", 20)
@@ -192,7 +207,7 @@ func create_ui():
 	button_container.add_child(play_button)
 
 	bury_button = Button.new()
-	bury_button.text = "埋底確定"
+	bury_button.text = GameConfig.text("confirm_bury")
 	bury_button.position = Vector2.ZERO
 	bury_button.size = Vector2(140, 48)
 	bury_button.add_theme_font_size_override("font_size", 20)
@@ -201,7 +216,7 @@ func create_ui():
 	bury_button.visible = false
 	button_container.add_child(bury_button)
 
-	# ── 中央メッセージ ──────────────────────────────
+	# ── centerメッセージ ──────────────────────────────
 	center_message_panel = Panel.new()
 	center_message_panel.position = Vector2(364, 302)
 	center_message_panel.size = Vector2(552, 74)
@@ -218,12 +233,12 @@ func create_ui():
 	center_message.add_theme_color_override("font_color", Color(C_GOLD, 0.95))
 	center_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center_message.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	center_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	center_message.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	center_message_panel.add_child(center_message)
 
-	# ── 前トリック ──────────────────────────────────
 	last_trick_button = Button.new()
-	last_trick_button.text = "前の手"
+	last_trick_button.text = GameConfig.text("previous_trick")
 	last_trick_button.position = Vector2(1090, 18)
 	last_trick_button.size = Vector2(172, 36)
 	last_trick_button.add_theme_font_size_override("font_size", 15)
@@ -267,17 +282,8 @@ func create_phase2_ui():
 		add_child(game_over_ui)
 
 func create_player_avatars():
-	var avatar_positions = [
-		Vector2(570, 632),
-		Vector2(24,  300),
-		Vector2(570, 84),
-		Vector2(1126, 300)
-	]
-	var player_names = ["あなた", "左", "向かい", "右"]
-
 	for i in range(4):
 		var avatar_panel = Panel.new()
-		avatar_panel.position = avatar_positions[i]
 		avatar_panel.size = Vector2(136, 64)
 		avatar_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		style_panel(avatar_panel, Color(0.03, 0.07, 0.12, 0.85))
@@ -291,7 +297,7 @@ func create_player_avatars():
 		var name_label = Label.new()
 		name_label.position = Vector2(10, 7)
 		name_label.size = Vector2(116, 26)
-		name_label.text = player_names[i]
+		name_label.text = GameConfig.text("player_name") % [i + 1]
 		name_label.add_theme_font_size_override("font_size", 18)
 		name_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -302,13 +308,14 @@ func create_player_avatars():
 		var status_label = Label.new()
 		status_label.position = Vector2(10, 33)
 		status_label.size = Vector2(66, 20)
-		status_label.text = "チーム%s" % ("A" if i % 2 == 0 else "B")
+		status_label.text = GameConfig.text("team_a") if i % 2 == 0 else GameConfig.text("team_b")
 		status_label.add_theme_font_size_override("font_size", 13)
 		status_label.add_theme_color_override("font_color",
 			Color(0.35, 0.85, 0.45) if i % 2 == 0 else Color(0.95, 0.42, 0.42))
 		status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		avatar_panel.add_child(status_label)
+		player_team_labels.append(status_label)
 
 		var count_label = Label.new()
 		count_label.position = Vector2(76, 33)
@@ -321,6 +328,42 @@ func create_player_avatars():
 		avatar_panel.add_child(count_label)
 		player_card_count_labels.append(count_label)
 
+func apply_layout():
+	var viewport_size = get_viewport().get_visible_rect().size
+	var w = viewport_size.x
+	var h = viewport_size.y
+	var margin = max(18.0, w * 0.014)
+
+	if info_panel:
+		info_panel.position = Vector2(margin, margin)
+
+	if turn_panel:
+		turn_panel.size = Vector2(min(720.0, w * 0.46), 52)
+		turn_panel.position = Vector2((w - turn_panel.size.x) * 0.5, margin)
+		if turn_label:
+			turn_label.size = Vector2(turn_panel.size.x - 24, 38)
+
+	if action_panel:
+		action_panel.position = Vector2((w - action_panel.size.x) * 0.5, h - 70)
+
+	if center_message_panel:
+		center_message_panel.position = Vector2((w - center_message_panel.size.x) * 0.5, h * 0.42)
+		if center_message:
+			center_message.position = Vector2(14, 8)
+			center_message.size = center_message_panel.size - Vector2(28, 16)
+
+	if last_trick_button:
+		last_trick_button.position = Vector2(w - margin - last_trick_button.size.x, margin)
+
+	if last_trick_panel:
+		last_trick_panel.position = Vector2(w - margin - last_trick_panel.size.x, margin + last_trick_button.size.y + 8)
+
+	if player_avatars.size() == 4:
+		player_avatars[0].position = Vector2((w - player_avatars[0].size.x) * 0.5, h - 112)
+		player_avatars[1].position = Vector2(margin + 6, h * 0.48 - player_avatars[1].size.y * 0.5)
+		player_avatars[2].position = Vector2((w - player_avatars[2].size.x) * 0.5, h * 0.13)
+		player_avatars[3].position = Vector2(w - margin - 6 - player_avatars[3].size.x, h * 0.48 - player_avatars[3].size.y * 0.5)
+
 # ── ボタンコールバック ──────────────────────────────
 
 func _on_play_button_pressed():
@@ -329,30 +372,54 @@ func _on_play_button_pressed():
 func _on_bury_button_pressed():
 	bury_cards_pressed.emit()
 
-# ── UI更新メソッド ──────────────────────────────────
+# ── UIupdateメソッド ──────────────────────────────────
 
 func update_level(level: int):
+	_current_level = level
 	var level_names = {
 		2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8",
 		9: "9", 10: "10", 11: "J", 12: "Q", 13: "K", 14: "A"
 	}
-	level_label.text = "現在レベル: %s" % level_names.get(level, str(level))
+	level_label.text = GameConfig.text("current_level") % level_names.get(level, str(level))
 
 func update_trump_suit(suit_symbol: String):
-	trump_label.text = "主スート: %s" % suit_symbol
+	_current_trump_symbol = suit_symbol
+	trump_label.text = GameConfig.text("trump_suit") % suit_symbol
 
 func update_team_scores(team1_score: int, team2_score: int):
-	team1_score_label.text = "%d点" % team1_score
-	team2_score_label.text = "%d点" % team2_score
+	_team1_score = team1_score
+	_team2_score = team2_score
+	team1_score_label.text = GameConfig.text("points") % team1_score
+	team2_score_label.text = GameConfig.text("points") % team2_score
 
 func update_turn_message(message: String):
 	turn_label.text = message
 
 func show_center_message(message: String, duration: float = 2.0):
 	center_message.text = message
+	fit_center_message_to_text(message)
 	center_message_panel.visible = true
 	await get_tree().create_timer(duration).timeout
 	center_message_panel.visible = false
+
+func fit_center_message_to_text(message: String):
+	var viewport_size = get_viewport().get_visible_rect().size
+	var max_width = max(CENTER_MESSAGE_MIN_WIDTH, viewport_size.x - 120.0)
+	var font = center_message.get_theme_font("font")
+	var font_size = center_message.get_theme_font_size("font_size")
+	var text_width = font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var panel_width = clamp(text_width + CENTER_MESSAGE_X_PADDING, CENTER_MESSAGE_MIN_WIDTH, max_width)
+	var wraps = text_width + CENTER_MESSAGE_X_PADDING > max_width
+	center_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if wraps else TextServer.AUTOWRAP_OFF
+
+	var label_width = panel_width - 28.0
+	var text_height = font.get_multiline_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, label_width, font_size).y if wraps else font_size + 8.0
+	var panel_height = max(CENTER_MESSAGE_MIN_HEIGHT, text_height + CENTER_MESSAGE_Y_PADDING)
+
+	center_message_panel.size = Vector2(panel_width, panel_height)
+	center_message.position = Vector2(14, 8)
+	center_message.size = Vector2(panel_width - 28.0, panel_height - 16.0)
+	apply_layout()
 
 func set_buttons_enabled(enabled: bool):
 	play_button.disabled = not enabled
@@ -373,7 +440,9 @@ func set_bury_button_enabled(enabled: bool):
 	bury_button.disabled = not enabled
 
 func update_selected_count(count: int, max_count: int = 8):
-	selected_count_label.text = "選択: %d/%d" % [count, max_count]
+	_selected_count = count
+	_selected_max = max_count
+	selected_count_label.text = GameConfig.text("selected") % [count, max_count]
 	if count == max_count:
 		set_bury_button_enabled(true)
 		selected_count_label.add_theme_color_override("font_color", Color(0.35, 0.85, 0.45))
@@ -404,4 +473,28 @@ func update_last_trick(summary: Array):
 func _on_last_trick_button_pressed():
 	last_trick_visible = not last_trick_visible
 	last_trick_panel.visible = last_trick_visible
-	last_trick_button.text = "閉じる" if last_trick_visible else "前の手"
+	last_trick_button.text = GameConfig.text("close") if last_trick_visible else GameConfig.text("previous_trick")
+
+func _on_language_changed(_language: String):
+	if level_label:
+		update_level(_current_level)
+	if trump_label:
+		update_trump_suit(_current_trump_symbol)
+	if team1_score_label and team2_score_label:
+		update_team_scores(_team1_score, _team2_score)
+	if selected_count_label:
+		update_selected_count(_selected_count, _selected_max)
+	if team1_title_label:
+		team1_title_label.text = GameConfig.text("team_a")
+	if team2_title_label:
+		team2_title_label.text = GameConfig.text("team_b")
+	if play_button:
+		play_button.text = GameConfig.text("play")
+	if bury_button:
+		bury_button.text = GameConfig.text("confirm_bury")
+	if last_trick_button:
+		last_trick_button.text = GameConfig.text("close") if last_trick_visible else GameConfig.text("previous_trick")
+	for i in range(player_name_labels.size()):
+		player_name_labels[i].text = GameConfig.text("player_name") % [i + 1]
+	for i in range(player_team_labels.size()):
+		player_team_labels[i].text = GameConfig.text("team_a") if i % 2 == 0 else GameConfig.text("team_b")
