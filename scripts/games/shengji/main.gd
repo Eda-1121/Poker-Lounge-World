@@ -4,6 +4,7 @@ extends Node2D
 var game_manager: Node
 var ui_manager: CanvasLayer
 var background: ColorRect
+var felt_texture_layer: Node2D
 
 func _ready():
 	get_window().title = GameConfig.text("shengji_title")
@@ -15,12 +16,17 @@ func _ready():
 	center_window(window_size)
 	
 	background = ColorRect.new()
-	background.color = Color(0.018, 0.055, 0.035)
+	background.color = Color(0.027, 0.114, 0.090)
 	background.position = Vector2.ZERO
 	background.size = Vector2(window_size)
 	background.z_index = -10
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
+
+	felt_texture_layer = Node2D.new()
+	felt_texture_layer.z_index = -9
+	add_child(felt_texture_layer)
+	build_felt_texture(window_size)
 	if not get_viewport().size_changed.is_connected(apply_layout):
 		get_viewport().size_changed.connect(apply_layout)
 
@@ -44,6 +50,8 @@ func _ready():
 		var bidding_ui = ui_manager.get_node("BiddingUI")
 		bidding_ui.bid_made.connect(game_manager._on_player_bid_made)
 		bidding_ui.bid_passed.connect(game_manager._on_player_bid_passed)
+		bidding_ui.bid_suit_skipped.connect(game_manager._on_player_bid_suit_skipped)
+		bidding_ui.bid_skipped_auto.connect(game_manager._on_player_bid_skipped_auto)
 
 	if ui_manager.has_node("GameOverUI"):
 		var game_over_ui = ui_manager.get_node("GameOverUI")
@@ -63,7 +71,7 @@ func _on_player_selection_changed(count: int):
 	if game_manager and game_manager.has_method("on_human_selection_changed"):
 		game_manager.on_human_selection_changed(count)
 	elif ui_manager:
-		ui_manager.update_selected_count(count, 8)
+		ui_manager.update_selected_count(count, GameConfig.get_shengji_bottom_card_count())
 
 func _on_quit_game():
 	"""Exit the game."""
@@ -76,6 +84,57 @@ func apply_layout():
 	var viewport_size = get_viewport().get_visible_rect().size
 	if background:
 		background.size = viewport_size
+	if felt_texture_layer:
+		build_felt_texture(viewport_size)
+
+func build_felt_texture(viewport_size: Vector2):
+	for child in felt_texture_layer.get_children():
+		child.queue_free()
+
+	for x in range(0, int(viewport_size.x), 22):
+		var line = ColorRect.new()
+		line.position = Vector2(x, 0)
+		line.size = Vector2(1, viewport_size.y)
+		line.color = Color(1, 1, 1, 0.010)
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		felt_texture_layer.add_child(line)
+
+	for y in range(0, int(viewport_size.y), 22):
+		var line = ColorRect.new()
+		line.position = Vector2(0, y)
+		line.size = Vector2(viewport_size.x, 1)
+		line.color = Color(0, 0, 0, 0.045)
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		felt_texture_layer.add_child(line)
+
+	var border_color = Color(0.945, 0.768, 0.353, 0.16)
+	var borders = [
+		[Vector2(0, 0), Vector2(viewport_size.x, 2)],
+		[Vector2(0, viewport_size.y - 2), Vector2(viewport_size.x, 2)],
+		[Vector2(0, 0), Vector2(2, viewport_size.y)],
+		[Vector2(viewport_size.x - 2, 0), Vector2(2, viewport_size.y)],
+	]
+	for item in borders:
+		var rect = ColorRect.new()
+		rect.position = item[0]
+		rect.size = item[1]
+		rect.color = border_color
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		felt_texture_layer.add_child(rect)
+
+	for item in [
+		[Vector2(viewport_size.x * 0.045, viewport_size.y * 0.84), "♠"],
+		[Vector2(viewport_size.x * 0.92, viewport_size.y * 0.08), "♣"],
+		[Vector2(viewport_size.x * 0.90, viewport_size.y * 0.82), "♦"],
+	]:
+		var mark = Label.new()
+		mark.text = item[1]
+		mark.position = item[0]
+		mark.size = Vector2(90, 90)
+		mark.add_theme_font_size_override("font_size", 74)
+		mark.add_theme_color_override("font_color", Color(0.945, 0.768, 0.353, 0.10))
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		felt_texture_layer.add_child(mark)
 
 func get_target_window_size() -> Vector2i:
 	var screen = DisplayServer.window_get_current_screen()

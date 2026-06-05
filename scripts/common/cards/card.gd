@@ -8,7 +8,7 @@ signal flip_completed(card: Card)
 signal move_completed(card: Card)
 
 # Enums
-enum Suit { SPADE, HEART, CLUB, DIAMOND, JOKER }
+enum Suit { NO_TRUMP = -1, SPADE = 0, HEART = 1, CLUB = 2, DIAMOND = 3, JOKER = 4 }
 enum Rank {
 	TWO = 2, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT,
 	NINE, TEN, JACK, QUEEN, KING, ACE = 14,
@@ -32,16 +32,17 @@ var collision_shape: CollisionShape2D
 var area_2d: Area2D
 var selected_glow: Sprite2D
 var trump_glow: Sprite2D
+var trump_dot: Sprite2D
 
 # Animation settings
 const FLIP_DURATION = 0.3
 const FLIP_HALF_TIME = 0.15
 const CARD_SCALE = 1.34  # Overall card scale
-const CARD_WIDTH = 100.0
-const CARD_HEIGHT = 140.0
+const CARD_WIDTH = 80.0
+const CARD_HEIGHT = 80.0
 const HOVER_HEIGHT = 28  # Hover lift
 const HOVER_SCALE = 1.08  # Extra scale while hovering
-const SELECTED_HEIGHT = 38  # Upward offset while selected
+const SELECTED_HEIGHT = 124  # Upward offset while selected
 const DEFAULT_HAND_HIT_WIDTH = 35.0
 const HAND_HIT_X_NUDGE = 13.0
 const HAND_HIT_WIDTH_SHRINK = 5.0
@@ -73,7 +74,7 @@ func _ready():
 	_setup_sprite()
 	_setup_area2d()
 	load_textures()
-	sprite.texture = back_texture
+	apply_card_texture(back_texture)
 	_setup_card_fx()
 	if not GameConfig.card_style_changed.is_connected(_on_card_style_changed):
 		GameConfig.card_style_changed.connect(_on_card_style_changed)
@@ -84,11 +85,10 @@ func _setup_sprite():
 	if not has_node("Sprite2D"):
 		sprite = Sprite2D.new()
 		sprite.name = "Sprite2D"
-		sprite.scale = Vector2(CARD_SCALE, CARD_SCALE)
 		add_child(sprite)
 	else:
 		sprite = get_node("Sprite2D")
-		sprite.scale = Vector2(CARD_SCALE, CARD_SCALE)
+	sprite.scale = Vector2(CARD_SCALE, CARD_SCALE)
 
 func _setup_area2d():
 	if not has_node("Area2D"):
@@ -129,10 +129,24 @@ func set_hand_overlap_spacing(spacing: float, is_last_card: bool = false):
 	refresh_visual_state()
 
 func get_visual_card_size() -> Vector2:
-	if sprite and sprite.texture:
-		var texture_size = sprite.texture.get_size()
-		return Vector2(texture_size.x * abs(sprite.scale.x), texture_size.y * abs(sprite.scale.y))
 	return Vector2(CARD_WIDTH * CARD_SCALE, CARD_HEIGHT * CARD_SCALE)
+
+func get_sprite_scale_for_texture(texture: Texture2D) -> Vector2:
+	if texture == null:
+		return Vector2(CARD_SCALE, CARD_SCALE)
+	var texture_size = texture.get_size()
+	if texture_size.x <= 0 or texture_size.y <= 0:
+		return Vector2(CARD_SCALE, CARD_SCALE)
+	return Vector2(
+		(CARD_WIDTH * CARD_SCALE) / texture_size.x,
+		(CARD_HEIGHT * CARD_SCALE) / texture_size.y
+	)
+
+func apply_card_texture(texture: Texture2D):
+	if sprite == null:
+		return
+	sprite.texture = texture
+	sprite.scale = get_sprite_scale_for_texture(texture)
 
 # ============================================
 # Basic card helpers
@@ -193,7 +207,7 @@ func load_textures():
 func _on_card_style_changed(_style_id: String):
 	load_textures()
 	if sprite:
-		sprite.texture = front_texture if is_face_up else back_texture
+		apply_card_texture(front_texture if is_face_up else back_texture)
 	refresh_visual_state()
 
 func get_card_color() -> Color:
@@ -243,8 +257,12 @@ func _animate_flip(_from_texture: Texture2D, to_texture: Texture2D):
 	tween.set_trans(Tween.TRANS_CUBIC)
 	
 	tween.tween_property(sprite, "scale:x", 0.0, FLIP_HALF_TIME)
-	tween.tween_callback(func(): sprite.texture = to_texture)
-	tween.tween_property(sprite, "scale:x", CARD_SCALE, FLIP_HALF_TIME)
+	tween.tween_callback(func():
+		var next_scale = get_sprite_scale_for_texture(to_texture)
+		sprite.texture = to_texture
+		sprite.scale = Vector2(0.0, next_scale.y)
+	)
+	tween.tween_property(sprite, "scale:x", get_sprite_scale_for_texture(to_texture).x, FLIP_HALF_TIME)
 	tween.tween_callback(func():
 		refresh_visual_state()
 		flip_completed.emit(self)
@@ -253,8 +271,7 @@ func _animate_flip(_from_texture: Texture2D, to_texture: Texture2D):
 func set_face_up(face_up: bool, instant: bool = false):
 	if instant:
 		is_face_up = face_up
-		sprite.texture = front_texture if face_up else back_texture
-		sprite.scale = Vector2(CARD_SCALE, CARD_SCALE)
+		apply_card_texture(front_texture if face_up else back_texture)
 		refresh_visual_state()
 	else:
 		if face_up and not is_face_up:
@@ -421,16 +438,16 @@ func _update_hint_visual(key: String):
 		if existing:
 			existing.queue_free()
 		_hint_sprites.erase(key)
-	var img = create_hint_dot_texture(get_hint_dot_size())
+	var img = create_hint_dot_texture(get_hint_dot_size(), get_hint_dot_color(key))
 	var hint = Sprite2D.new()
 	hint.texture = ImageTexture.create_from_image(img)
-	hint.position = get_hint_dot_position()
+	hint.position = get_hint_dot_position("top", get_hint_dot_size())
 	hint.z_as_relative = false
 	hint.z_index = 2000
 	add_child(hint)
 	_hint_sprites[key] = hint
 
-func create_hint_dot_texture(size: int = 24) -> Image:
+func create_hint_dot_texture(size: int = 24, core_color: Color = Color(1.0, 0.96, 0.68, 1.0)) -> Image:
 	var radius = float(size) * 0.5
 	var center = Vector2(radius, radius)
 	var img = Image.create(size, size, false, Image.FORMAT_RGBA8)
@@ -440,20 +457,26 @@ func create_hint_dot_texture(size: int = 24) -> Image:
 			var distance = Vector2(x, y).distance_to(center) / radius
 			if distance <= 1.0:
 				var alpha = pow(1.0 - distance, 1.8) * 0.82
-				var color = Color(0.78, 0.92, 1.0, alpha)
+				var color = Color(core_color.r, core_color.g, core_color.b, alpha * 0.46)
 				if distance < 0.34:
-					color = Color(1.0, 0.96, 0.68, min(0.95, alpha + 0.22))
+					color = Color(core_color.r, core_color.g, core_color.b, min(0.95, alpha + 0.22))
 				img.set_pixel(x, y, color)
 	return img
 
-func get_hint_dot_position() -> Vector2:
+func get_hint_dot_color(key: String) -> Color:
+	match key:
+		"trump":
+			return Color(0.35, 0.76, 1.0, 1.0)
+		_:
+			return Color(1.0, 0.94, 0.46, 1.0)
+
+func get_hint_dot_position(vertical_anchor: String = "top", dot_size_value: int = -1) -> Vector2:
 	var visual_size = get_visual_card_size()
-	var x = 0.0
-	var dot_size = float(get_hint_dot_size())
-	if not is_wide_hand_spacing():
-		var rank_anchor = clamp(_hand_visible_width * 1.02, dot_size * 0.65, _hand_visible_width + dot_size * 0.15)
-		x = -visual_size.x * 0.5 + rank_anchor
-	return Vector2(x, -visual_size.y * 0.5 - dot_size * 0.35)
+	var dot_size = float(get_hint_dot_size() if dot_size_value < 0 else dot_size_value)
+	var x = -visual_size.x * 0.5 + visual_size.x * 0.30
+	if vertical_anchor == "bottom":
+		return Vector2(x, visual_size.y * 0.5 + dot_size * 0.20)
+	return Vector2(x, -visual_size.y * 0.5 - dot_size * 0.10)
 
 func get_hint_dot_size() -> int:
 	if is_wide_hand_spacing():
@@ -482,11 +505,29 @@ func _setup_card_fx():
 	trump_glow.visible = false
 	add_child(trump_glow)
 
+	trump_dot = Sprite2D.new()
+	trump_dot.name = "TrumpDot"
+	trump_dot.texture = ImageTexture.create_from_image(create_hint_dot_texture(14, get_hint_dot_color("trump")))
+	trump_dot.z_as_relative = false
+	trump_dot.z_index = 2001
+	trump_dot.visible = false
+	add_child(trump_dot)
+
 func refresh_visual_state():
 	if selected_glow:
-		selected_glow.visible = is_selected
+		selected_glow.visible = false
 	if trump_glow:
-		trump_glow.visible = is_face_up and is_trump
+		trump_glow.visible = false
+	if trump_dot:
+		var dot_size = get_trump_dot_size()
+		trump_dot.visible = is_face_up and is_trump
+		trump_dot.texture = ImageTexture.create_from_image(create_hint_dot_texture(dot_size, get_hint_dot_color("trump")))
+		trump_dot.position = get_hint_dot_position("bottom", dot_size)
+
+func get_trump_dot_size() -> int:
+	if is_wide_hand_spacing():
+		return 14
+	return int(clamp(_hand_visible_width - 4.0, 8.0, 12.0))
 
 func create_card_glow_texture(color: Color, width: int, height: int) -> Image:
 	var img = Image.create(width, height, false, Image.FORMAT_RGBA8)

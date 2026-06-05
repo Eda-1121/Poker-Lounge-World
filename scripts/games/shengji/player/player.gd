@@ -53,7 +53,10 @@ func receive_cards(cards: Array[Card], update_display_after_receive: bool = true
 func sort_hand(trump_last: bool = false, trump_suit: Card.Suit = Card.Suit.SPADE, current_rank: int = 2):
 	"""Sort the hand for bidding or play."""
 	for card in hand:
-		ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
+		if trump_last:
+			ShengjiCardLogic.apply_trump(card, trump_suit, current_rank)
+		else:
+			card.is_trump = false
 
 	hand.sort_custom(func(a, b):
 		if trump_last:
@@ -61,8 +64,10 @@ func sort_hand(trump_last: bool = false, trump_suit: Card.Suit = Card.Suit.SPADE
 				return not a.is_trump
 
 			if not a.is_trump:
-				if a.suit != b.suit:
-					return a.suit < b.suit
+				var a_suit_order = get_display_suit_order(a.suit)
+				var b_suit_order = get_display_suit_order(b.suit)
+				if a_suit_order != b_suit_order:
+					return a_suit_order < b_suit_order
 				return a.rank < b.rank
 
 			var a_type = _get_trump_type(a, trump_suit, current_rank)
@@ -78,12 +83,27 @@ func sort_hand(trump_last: bool = false, trump_suit: Card.Suit = Card.Suit.SPADE
 			# Other types are already ordered by type.
 			return a.rank < b.rank
 		else:
-			if a.is_trump != b.is_trump:
-				return a.is_trump
-			if a.suit != b.suit:
-				return a.suit < b.suit
+			var a_suit_order = get_display_suit_order(a.suit)
+			var b_suit_order = get_display_suit_order(b.suit)
+			if a_suit_order != b_suit_order:
+				return a_suit_order < b_suit_order
 			return a.rank < b.rank
 	)
+
+func get_display_suit_order(suit: Card.Suit) -> int:
+	match suit:
+		Card.Suit.HEART:
+			return 0
+		Card.Suit.SPADE:
+			return 1
+		Card.Suit.DIAMOND:
+			return 2
+		Card.Suit.CLUB:
+			return 3
+		Card.Suit.JOKER:
+			return 4
+		_:
+			return 5
 
 func _get_trump_type(card: Card, trump_suit: Card.Suit, current_rank: int) -> int:
 	"""

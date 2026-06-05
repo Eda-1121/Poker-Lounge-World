@@ -52,6 +52,8 @@ var ui_manager = null
 # Bid decision wait state
 var waiting_for_bid_decision: bool = false
 var bid_decision_made: bool = false
+var human_auto_bid_prompts_enabled: bool = true
+var human_skipped_bid_suits: Dictionary = {}
 
 signal phase_changed(phase: GamePhase)
 signal game_over(winner_team: int)
@@ -101,6 +103,12 @@ func get_player_positions() -> Array:
 func get_play_area_positions() -> Array:
 	return ShengjiTableLayout.get_play_area_positions(get_table_size())
 
+func get_game_mode() -> String:
+	return GameConfig.get_shengji_mode()
+
+func get_bottom_card_count() -> int:
+	return GameConfig.get_shengji_bottom_card_count()
+
 func cleanup_round_cards():
 	"""Remove cards from the previous round so the next round starts with a fresh deck."""
 	if deck:
@@ -144,6 +152,7 @@ func free_card_node(card: Card):
 func start_new_round():
 	print("=== Start new round ===")
 	total_rounds_played += 1
+	var bottom_card_count = get_bottom_card_count()
 
 	cleanup_round_cards()
 	player_void_suits = [[], [], [], []]
@@ -156,6 +165,8 @@ func start_new_round():
 		"count": 0,
 		"player_id": -1
 	}
+	human_auto_bid_prompts_enabled = true
+	human_skipped_bid_suits.clear()
 	bidding_round = 0
 	current_phase = GamePhase.DEALING_AND_BIDDING
 	current_player_index = dealer_index
@@ -167,10 +178,10 @@ func start_new_round():
 	print("Step 1: Shuffle")
 	deck.shuffle()
 
-	# Step 2: Prepare 8 bottom cards
-	print("Step 2: Prepare 8 bottom cards")
+	# Step 2: Prepare bottom cards for the selected mode.
+	print("Step 2: Prepare ", bottom_card_count, " bottom cards")
 	bottom_cards.clear()
-	for _i in 8:
+	for _i in bottom_card_count:
 		if deck.cards.size() > 0:
 			bottom_cards.append(deck.cards.pop_back())
 	print("Bottom cards prepared. Remaining cards: ", deck.cards.size())
@@ -180,6 +191,8 @@ func start_new_round():
 	# InitializeUI
 	if ui_manager:
 		ui_manager.update_level(current_level)
+		if ui_manager.has_method("update_game_mode"):
+			ui_manager.update_game_mode()
 		ui_manager.update_trump_suit("?")
 		ui_manager.update_team_scores(0, 0)
 		ui_manager.update_turn_message(GameConfig.text("dealing"))
@@ -216,9 +229,11 @@ func start_dealing_cards():
 		var card = deck.cards.pop_back()
 		var player = players[current_player]
 
-		player.receive_cards([card])
+		player.receive_cards([card], false)
 
 		if player.player_type == Player.PlayerType.HUMAN:
+			player.sort_hand(false, trump_suit, current_level)
+			player.update_hand_display(false)
 			card.set_face_up(true, false)
 			card.visible = true
 			player.set_card_selectable(false)
@@ -244,37 +259,26 @@ func start_dealing_cards():
 
 func check_and_handle_bidding(player: Player, latest_card: Card):
 	"""Check whether the player can bid and handle the bid opportunity."""
-	var level_cards = []
-	for card in player.hand:
-		if card.rank == current_level:
-			level_cards.append(card)
-
-	if level_cards.is_empty():
+	var bid_counts = get_bid_counts_for_dealt_card(player, latest_card) if player.player_type == Player.PlayerType.HUMAN else get_bid_counts(player)
+	if bid_counts.is_empty():
 		return
 
-	var suit_counts = {}
-	for card in level_cards:
-		if not suit_counts.has(card.suit):
-			suit_counts[card.suit] = 0
-		suit_counts[card.suit] += 1
+	if player.player_type == Player.PlayerType.HUMAN:
+		if not human_auto_bid_prompts_enabled:
+			return
 
-	var max_count = 0
-	var max_suit = null
-	for suit in suit_counts:
-		if suit_counts[suit] > max_count:
-			max_count = suit_counts[suit]
-			max_suit = suit
-
-	if player.player_type == Player.PlayerType.HUMAN and max_count > 0:
 		var available_suits = []
 		var valid_suit_counts = {}
-		for suit in suit_counts:
-			var count = suit_counts[suit]
+		for suit in bid_counts:
+			if human_skipped_bid_suits.has(suit):
+				continue
+			var count = bid_counts[suit]
 			if can_make_bid(player, suit, count):
 				available_suits.append(suit)
 				valid_suit_counts[suit] = count
 
 		if not available_suits.is_empty():
+			available_suits.sort_custom(func(a, b): return get_bid_suit_order(a) < get_bid_suit_order(b))
 			if ui_manager and ui_manager.has_node("BiddingUI"):
 				var bidding_ui = ui_manager.get_node("BiddingUI")
 				bidding_ui.show_bidding_options(available_suits, valid_suit_counts)
@@ -290,10 +294,12 @@ func check_and_handle_bidding(player: Player, latest_card: Card):
 
 	# AIPlayer automaticBidlogic
 	elif player.player_type == Player.PlayerType.AI:
-		if max_count > 0 and can_make_bid(player, max_suit, max_count):
-			if max_count >= 2 or current_bid["count"] == 0:
-				make_bid(player, max_suit, max_count)
-				print("AI ", player.player_name, " bids with count: ", max_count)
+		var best_bid = get_best_bid_option(player)
+		if not best_bid.is_empty():
+			var bid_count = best_bid["count"]
+			if bid_count >= 2 or current_bid["count"] == 0:
+				make_bid(player, best_bid["suit"], bid_count)
+				print("AI ", player.player_name, " bids with count: ", bid_count)
 
 func finish_dealing():
 	"""After dealing, offer final bid opportunities and decide trump."""
@@ -325,8 +331,8 @@ func finish_dealing():
 		print("Bid accepted. New dealer: ", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
 
 	if ui_manager:
-		ui_manager.update_trump_suit(get_trump_symbol())
-		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_symbol()], 2.0)
+		ui_manager.update_trump_suit(get_trump_display_name())
+		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_display_name()], 2.0)
 
 	await get_tree().create_timer(2.0).timeout
 
@@ -347,45 +353,29 @@ func check_final_bidding_opportunity():
 	print("Checking all players for final bid opportunities...")
 
 	for player in players:
-		var level_cards = []
-		for card in player.hand:
-			if card.rank == current_level:
-				level_cards.append(card)
-
-		if level_cards.is_empty():
-			continue
-
-		var suit_counts = {}
-		for card in level_cards:
-			if not suit_counts.has(card.suit):
-				suit_counts[card.suit] = 0
-			suit_counts[card.suit] += 1
-
-		var max_count = 0
-		var max_suit = null
-		for suit in suit_counts:
-			if suit_counts[suit] > max_count:
-				max_count = suit_counts[suit]
-				max_suit = suit
+		var bid_counts = get_bid_counts(player)
+		var best_bid = get_best_bid_option(player)
 
 		# Counter-bids require more level cards than the current bid.
-		if max_count > current_bid["count"]:
-			print(player.player_name, " has ", max_count, " level cards and can counter-bid")
+		if not best_bid.is_empty():
+			var max_count = best_bid["count"]
+			print(player.player_name, " has ", max_count, " bid cards and can counter-bid")
 
 			if player.player_type == Player.PlayerType.HUMAN:
 				# humanPlayer ，showBidUI
 				var available_suits = []
 				var valid_suit_counts = {}
-				for suit in suit_counts:
-					var count = suit_counts[suit]
-					if count > current_bid["count"]:
+				for suit in bid_counts:
+					var count = bid_counts[suit]
+					if can_make_bid(player, suit, count):
 						available_suits.append(suit)
 						valid_suit_counts[suit] = count
 
 				if not available_suits.is_empty():
+					available_suits.sort_custom(func(a, b): return get_bid_suit_order(a) < get_bid_suit_order(b))
 					if ui_manager and ui_manager.has_node("BiddingUI"):
 						var bidding_ui = ui_manager.get_node("BiddingUI")
-						bidding_ui.show_bidding_options(available_suits, valid_suit_counts)
+						bidding_ui.show_bidding_options(available_suits, valid_suit_counts, false)
 						ui_manager.show_center_message(GameConfig.text("final_bid_opportunity"), 2.0)
 
 					# waitPlayer decision
@@ -396,9 +386,9 @@ func check_final_bidding_opportunity():
 					waiting_for_bid_decision = false
 			else:
 				# AI decides automatically whether to counter-bid.
-				if max_count > current_bid["count"] + 1:  # AI counter-bids only with a clear advantage.
+				if current_bid["count"] == 0 or max_count > current_bid["count"] + 1:
 					print("AI ", player.player_name, " decides to counter-bid")
-					make_bid(player, max_suit, max_count)
+					make_bid(player, best_bid["suit"], max_count)
 					await get_tree().create_timer(2.0).timeout
 				else:
 					print("AI ", player.player_name, " passes on counter-bid")
@@ -462,8 +452,132 @@ func _on_player_bid_passed():
 	# setdecisionCompleteflag，notifycontinueDeal
 	bid_decision_made = true
 
+func _on_player_bid_skipped_auto():
+	"""Player disables automatic bidding prompts for the current deal."""
+	human_auto_bid_prompts_enabled = false
+
+	if ui_manager and ui_manager.has_node("BiddingUI"):
+		var bidding_ui = ui_manager.get_node("BiddingUI")
+		bidding_ui.enable_buttons(false)
+
+	bid_decision_made = true
+
+func _on_player_bid_suit_skipped(suit: Card.Suit):
+	"""Player disables automatic bidding prompts for one suit during the current deal."""
+	human_skipped_bid_suits[suit] = true
+
+	if ui_manager and ui_manager.has_node("BiddingUI"):
+		var bidding_ui = ui_manager.get_node("BiddingUI")
+		bidding_ui.enable_buttons(false)
+
+	bid_decision_made = true
+
 func can_make_bid(player: Player, suit: Card.Suit, count: int) -> bool:
 	return ShengjiBiddingRules.can_make_bid(player.team, suit, count, current_bid)
+
+func get_bid_counts(player: Player) -> Dictionary:
+	var bid_counts = {}
+	var joker_rank_counts = {}
+	for card in player.hand:
+		if card.suit == Card.Suit.JOKER:
+			joker_rank_counts[card.rank] = joker_rank_counts.get(card.rank, 0) + 1
+		elif card.rank == current_level:
+			bid_counts[card.suit] = bid_counts.get(card.suit, 0) + 1
+
+	for joker_rank in joker_rank_counts:
+		bid_counts[Card.Suit.NO_TRUMP] = max(bid_counts.get(Card.Suit.NO_TRUMP, 0), joker_rank_counts[joker_rank])
+	return bid_counts
+
+func get_bid_counts_for_dealt_card(player: Player, latest_card: Card) -> Dictionary:
+	var bid_counts = {}
+	if latest_card == null:
+		return bid_counts
+
+	if latest_card.suit == Card.Suit.JOKER:
+		var same_joker_count = 0
+		for card in player.hand:
+			if card.suit == Card.Suit.JOKER and card.rank == latest_card.rank:
+				same_joker_count += 1
+		if same_joker_count > 0:
+			bid_counts[Card.Suit.NO_TRUMP] = same_joker_count
+		return bid_counts
+
+	if latest_card.rank != current_level:
+		return bid_counts
+
+	var suit_count = 0
+	for card in player.hand:
+		if card.suit == latest_card.suit and card.rank == current_level:
+			suit_count += 1
+	if suit_count > 0:
+		bid_counts[latest_card.suit] = suit_count
+	return bid_counts
+
+func get_best_bid_option(player: Player) -> Dictionary:
+	var best_bid = {}
+	var best_score = -INF
+	var bid_counts = get_bid_counts(player)
+	for suit in bid_counts:
+		var count = bid_counts[suit]
+		if not can_make_bid(player, suit, count):
+			continue
+		var score = score_bid_option(player, suit, count)
+		if score > best_score:
+			best_score = score
+			best_bid = {
+				"suit": suit,
+				"count": count
+			}
+	return best_bid
+
+func score_bid_option(player: Player, suit: Card.Suit, count: int) -> float:
+	var score = float(count) * 100.0
+	var trump_count = 0
+	var trump_points = 0
+	var protected_sets = 0
+	var suit_count = 0
+	var suit_points = 0
+	var suit_pairs = 0
+	for card in player.hand:
+		var would_be_trump = card.suit == Card.Suit.JOKER or card.rank == current_level
+		if suit != Card.Suit.NO_TRUMP:
+			would_be_trump = would_be_trump or card.suit == suit
+			if card.suit == suit:
+				suit_count += 1
+				suit_points += card.points
+				if is_card_part_of_pair(card, player.hand):
+					suit_pairs += 1
+		if would_be_trump:
+			trump_count += 1
+			trump_points += card.points
+			if is_card_part_of_pair(card, player.hand):
+				protected_sets += 1
+
+	score += float(trump_count) * 2.4
+	score += float(trump_points) * 0.8
+	score += float(protected_sets) * 1.5
+	if suit == Card.Suit.NO_TRUMP:
+		score -= 45.0
+	else:
+		score += float(suit_count) * 5.0
+		score += float(suit_points) * 0.35
+		score += float(suit_pairs) * 1.2
+	return score
+
+func get_bid_suit_order(suit: Card.Suit) -> int:
+	match suit:
+		Card.Suit.SPADE:
+			return 0
+		Card.Suit.HEART:
+			return 1
+		Card.Suit.CLUB:
+			return 2
+		Card.Suit.DIAMOND:
+			return 3
+		Card.Suit.NO_TRUMP, Card.Suit.JOKER:
+			return 4
+		_:
+			return 5
 
 func make_bid(player: Player, suit: Card.Suit, count: int):
 	current_bid = {
@@ -485,28 +599,9 @@ func make_bid(player: Player, suit: Card.Suit, count: int):
 
 func ai_make_bid(ai_player: Player):
 	"""AI bidding logic."""
-	var level_cards = []
-	for card in ai_player.hand:
-		if card.rank == current_level:
-			level_cards.append(card)
-	
-	if level_cards.size() >= 2:
-		var suit_counts = {}
-		for card in level_cards:
-			if not suit_counts.has(card.suit):
-				suit_counts[card.suit] = 0
-			suit_counts[card.suit] += 1
-		
-		# findPair
-		for suit in suit_counts:
-			if suit_counts[suit] >= 2:
-				if can_make_bid(ai_player, suit, 2):
-					make_bid(ai_player, suit, 2)
-					next_bidding_turn()
-					return
-	
-	if level_cards.size() >= 1 and current_bid["count"] == 0:
-		make_bid(ai_player, level_cards[0].suit, 1)
+	var best_bid = get_best_bid_option(ai_player)
+	if not best_bid.is_empty():
+		make_bid(ai_player, best_bid["suit"], best_bid["count"])
 		next_bidding_turn()
 		return
 	
@@ -542,8 +637,8 @@ func finish_bidding():
 		dealer_index = current_bid["player_id"]
 	
 	if ui_manager:
-		ui_manager.update_trump_suit(get_trump_symbol())
-		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_symbol()], 2.0)
+		ui_manager.update_trump_suit(get_trump_display_name())
+		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_display_name()], 2.0)
 	
 	await get_tree().create_timer(2.0).timeout
 	
@@ -556,6 +651,7 @@ func finish_bidding():
 func get_suit_name(suit: Card.Suit) -> String:
 	"""Return the display name for a suit."""
 	match suit:
+		Card.Suit.NO_TRUMP: return GameConfig.text("suit_no_trump")
 		Card.Suit.SPADE: return GameConfig.text("suit_spade")
 		Card.Suit.HEART: return GameConfig.text("suit_heart")
 		Card.Suit.CLUB: return GameConfig.text("suit_club")
@@ -591,7 +687,7 @@ func start_burying_phase():
 		ui_manager.update_turn_message(GameConfig.text("bury_hint"))
 		ui_manager.show_center_message(GameConfig.text("suggested_bury"), 2.5)
 		ui_manager.show_bury_button(true)
-		ui_manager.update_selected_count(0, 8)
+		ui_manager.update_selected_count(0, get_bottom_card_count())
 		ui_manager.set_bury_button_enabled(false)
 
 func _on_bury_cards_pressed():
@@ -605,13 +701,14 @@ func _on_bury_cards_pressed():
 
 	var dealer = players[dealer_index]
 
-	if dealer.selected_cards.size() != 8:
-		print("Wrong selected card count: ", dealer.selected_cards.size(), "; expected 8")
+	var bottom_card_count = get_bottom_card_count()
+	if dealer.selected_cards.size() != bottom_card_count:
+		print("Wrong selected card count: ", dealer.selected_cards.size(), "; expected ", bottom_card_count)
 		if ui_manager:
-			ui_manager.show_center_message(GameConfig.text("select_exact_bury"), 1.5)
+			ui_manager.show_center_message(GameConfig.text("select_exact_bury") % bottom_card_count, 1.5)
 		return
 
-	print("Bury action: remove 8 cards from hand size ", dealer.hand.size())
+	print("Bury action: remove ", bottom_card_count, " cards from hand size ", dealer.hand.size())
 
 	for card in dealer.selected_cards:
 		bottom_cards.append(card)
@@ -725,7 +822,7 @@ func choose_ai_bury_cards(dealer: Player) -> Array:
 	sorted_hand.sort_custom(func(a, b):
 		return get_ai_bury_score(a, dealer.hand) > get_ai_bury_score(b, dealer.hand)
 	)
-	return sorted_hand.slice(0, min(8, sorted_hand.size()))
+	return sorted_hand.slice(0, min(get_bottom_card_count(), sorted_hand.size()))
 
 func get_ai_bury_score(card: Card, hand: Array[Card]) -> float:
 	ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
@@ -793,6 +890,7 @@ func start_playing_phase():
 
 func get_trump_symbol() -> String:
 	match trump_suit:
+		Card.Suit.NO_TRUMP: return "👑"
 		Card.Suit.SPADE: return "♠"
 		Card.Suit.HEART: return "♥"
 		Card.Suit.CLUB: return "♣"
@@ -800,8 +898,13 @@ func get_trump_symbol() -> String:
 		Card.Suit.JOKER: return "👑"
 		_: return "?"
 
+func get_trump_display_name() -> String:
+	if trump_suit == Card.Suit.NO_TRUMP or trump_suit == Card.Suit.JOKER:
+		return GameConfig.text("suit_no_trump")
+	return get_suit_name(trump_suit)
+
 func get_team_name(team: int) -> String:
-	return GameConfig.text("team_name") % [team + 1]
+	return GameConfig.text("team_a") if team == 0 else GameConfig.text("team_b")
 
 func get_player_display_name(player_id: int) -> String:
 	return GameConfig.text("player_name") % [player_id + 1]
@@ -826,6 +929,12 @@ func _on_language_changed(_language: String):
 			ui_manager.update_turn_message(GameConfig.text("ai_burying"))
 	elif current_phase == GamePhase.DEALING_AND_BIDDING:
 		ui_manager.update_turn_message(GameConfig.text("dealing"))
+	if ui_manager.has_node("BiddingUI"):
+		var bidding_ui = ui_manager.get_node("BiddingUI")
+		if current_bid["count"] > 0:
+			bidding_ui.update_current_bid(GameConfig.text("current_bid") % [get_player_display_name(current_bid["player_id"]), get_suit_name(current_bid["suit"])])
+		else:
+			bidding_ui.update_current_bid(GameConfig.text("current_bid_none"))
 	if not last_trick_summary.is_empty() and ui_manager.has_method("update_last_trick"):
 		for entry in last_trick_summary:
 			if entry.has("player_id"):
@@ -868,8 +977,9 @@ func update_action_controls():
 	if current_phase == GamePhase.BURYING:
 		var dealer = players[dealer_index]
 		if dealer.player_type == Player.PlayerType.HUMAN:
-			ui_manager.update_selected_count(dealer.selected_cards.size(), 8)
-			ui_manager.set_bury_button_enabled(dealer.selected_cards.size() == 8)
+			var bottom_card_count = get_bottom_card_count()
+			ui_manager.update_selected_count(dealer.selected_cards.size(), bottom_card_count)
+			ui_manager.set_bury_button_enabled(dealer.selected_cards.size() == bottom_card_count)
 		ui_manager.set_buttons_enabled(false)
 		return
 
@@ -944,11 +1054,18 @@ func _on_play_cards_pressed():
 		# lead playerPlay cards
 		if pattern.pattern_type == GameRules.CardPattern.THROW:
 			# Throwrequiresvalidate
-			if not validate_throw(human_player, pattern):
+			var throw_result = resolve_throw_play(human_player, pattern)
+			if not throw_result["success"]:
+				var forced_cards: Array[Card] = []
+				for card in throw_result["forced_cards"]:
+					forced_cards.append(card)
+				human_player.clear_selection()
+				for card in forced_cards:
+					card.set_selected(true)
+				pattern = GameRules.identify_pattern(forced_cards, trump_suit, current_level)
 				if ui_manager:
 					ui_manager.show_center_message(GameConfig.text("throw_failed"), 2.0)
-				update_action_controls()
-				return
+				await get_tree().create_timer(0.6).timeout
 		
 		if human_player.play_selected_cards():
 			show_played_cards(0, pattern.cards)
@@ -994,7 +1111,17 @@ func _on_play_cards_pressed():
 				next_player_turn()
 
 func validate_throw(player: Player, throw_pattern: GameRules.PlayPattern) -> bool:
-	"""Validate whether a throw succeeds."""
+	return resolve_throw_play(player, throw_pattern)["success"]
+
+func resolve_throw_play(player: Player, throw_pattern: GameRules.PlayPattern) -> Dictionary:
+	"""Validate a throw and provide the forced component when it fails."""
+	var components = GameRules.decompose_throw(throw_pattern.cards, trump_suit, current_level)
+	if components.is_empty():
+		return {
+			"success": false,
+			"forced_cards": throw_pattern.cards.slice(0, 1)
+		}
+
 	for i in range(1, 4):
 		var other_player = players[(player.player_id + i) % 4]
 		
@@ -1002,13 +1129,17 @@ func validate_throw(player: Player, throw_pattern: GameRules.PlayPattern) -> boo
 		for card in other_player.hand:
 			ShengjiCardLogic.apply_trump(card, trump_suit, current_level)
 		
-		# Check whether any thrown card can be beaten.
-		for throw_card in throw_pattern.cards:
-			for hand_card in other_player.hand:
-				if can_beat_card(hand_card, throw_card):
-					return false
+		for component in components:
+			if not GameRules.find_same_structure_beaters(other_player.hand, component["pattern"], trump_suit, current_level).is_empty():
+				return {
+					"success": false,
+					"forced_cards": component["cards"]
+				}
 
-	return true
+	return {
+		"success": true,
+		"forced_cards": throw_pattern.cards
+	}
 
 func can_beat_card(card1: Card, card2: Card) -> bool:
 	"""Check whether card1 beats card2."""
@@ -1143,7 +1274,31 @@ func choose_ai_lead_play(ai_player: Player) -> Array:
 			best_score = score
 			best_candidate = candidate
 
+	var throw_candidate = choose_ai_throw_lead(ai_player)
+	if not throw_candidate.is_empty():
+		var throw_score = score_ai_lead_candidate(throw_candidate, ai_player.player_id) - 18.0
+		if throw_score < best_score:
+			best_candidate = throw_candidate
+
 	return best_candidate
+
+func choose_ai_throw_lead(ai_player: Player) -> Array:
+	var sorted_hand = sort_cards_by_strength(ai_player.hand, false)
+	var throw_cards: Array[Card] = []
+	for card in sorted_hand:
+		if card.points > 0:
+			continue
+		throw_cards.append(card)
+		if throw_cards.size() >= 3:
+			break
+	if throw_cards.size() < 2:
+		return []
+	var pattern = GameRules.identify_pattern(throw_cards, trump_suit, current_level)
+	if pattern.pattern_type != GameRules.CardPattern.THROW:
+		return []
+	if validate_throw(ai_player, pattern):
+		return throw_cards
+	return []
 
 func choose_ai_follow_play(ai_player: Player) -> Array:
 	var lead_pattern = current_trick[0]["pattern"]
@@ -1187,10 +1342,18 @@ func get_ai_lead_candidates(hand: Array[Card]) -> Array:
 	for pair in pairs:
 		append_ai_lead_candidate(candidates, pair, hand)
 
-	var tractors = GameRules.find_tractors_in_cards(hand, 4, trump_suit, current_level)
-	sort_candidate_list_by_cost(tractors)
-	for tractor in tractors:
-		append_ai_lead_candidate(candidates, tractor, hand)
+	if get_game_mode() == GameConfig.SHENGJI_MODE_HARD:
+		for set_size in [3, 4]:
+			var sets = GameRules.find_sets_in_cards(hand, set_size)
+			sort_candidate_list_by_cost(sets)
+			for set_cards in sets:
+				append_ai_lead_candidate(candidates, set_cards, hand)
+
+	for length in range(4, min(14, hand.size()) + 1):
+		var tractors = GameRules.find_tractors_in_cards(hand, length, trump_suit, current_level)
+		sort_candidate_list_by_cost(tractors)
+		for tractor in tractors:
+			append_ai_lead_candidate(candidates, tractor, hand)
 
 	return candidates
 
@@ -1198,6 +1361,9 @@ func get_ai_follow_candidates(hand: Array[Card], lead_pattern: GameRules.PlayPat
 	var candidates = []
 	var needed = lead_pattern.length
 	var same_suit_cards = get_same_suit_cards_for_lead(hand, lead_pattern)
+
+	for candidate in GameRules.get_valid_follow_cards(hand, lead_pattern, trump_suit, current_level):
+		append_ai_follow_candidate(candidates, candidate, hand, lead_pattern)
 
 	match lead_pattern.pattern_type:
 		GameRules.CardPattern.SINGLE:
@@ -1228,10 +1394,6 @@ func get_ai_follow_candidates(hand: Array[Card], lead_pattern: GameRules.PlayPat
 		_:
 			append_count_based_follow_candidates(candidates, same_suit_cards, hand, needed, lead_pattern)
 
-	if candidates.is_empty():
-		for candidate in GameRules.get_valid_follow_cards(hand, lead_pattern, trump_suit, current_level):
-			append_ai_follow_candidate(candidates, candidate, hand, lead_pattern)
-
 	return candidates
 
 func append_count_based_follow_candidates(candidates: Array, same_suit_cards: Array[Card], hand: Array[Card], needed: int, lead_pattern: GameRules.PlayPattern):
@@ -1251,8 +1413,11 @@ func append_ai_lead_candidate(candidates: Array, cards: Array, hand: Array[Card]
 		return
 
 	var pattern = GameRules.identify_pattern(typed_cards, trump_suit, current_level)
-	if pattern.pattern_type == GameRules.CardPattern.INVALID or pattern.pattern_type == GameRules.CardPattern.THROW:
+	if pattern.pattern_type == GameRules.CardPattern.INVALID:
 		return
+	if pattern.pattern_type == GameRules.CardPattern.THROW and current_trick.is_empty():
+		if not validate_throw(players[current_player_index], pattern):
+			return
 
 	append_unique_candidate(candidates, typed_cards)
 
@@ -1495,19 +1660,26 @@ func end_round():
 	var levels_to_advance: int = result["levels"]
 	var winning_team: int = result["winning_team"]
 
-	team_levels[winning_team] += levels_to_advance
+	if levels_to_advance > 0:
+		team_levels[winning_team] += levels_to_advance
 	if result["dealer_rotates"]:
 		dealer_index = (dealer_index + 1) % 4
 
 	if ui_manager:
-		var message_key = "team_dominates_levels" if result["dominant"] else "team_wins_levels"
-		if winning_team == dealer_team and not result["dominant"]:
-			message_key = "team_holds_levels"
-		ui_manager.show_center_message(GameConfig.text(message_key) % [get_team_name(winning_team), levels_to_advance], 3.0)
+		var message = ""
+		if levels_to_advance == 0 and result.get("dealer_takeover", false):
+			message = GameConfig.text("team_takes_dealer") % get_team_name(winning_team)
+		else:
+			var message_key = "team_dominates_levels" if result["dominant"] else "team_wins_levels"
+			if winning_team == dealer_team and not result["dominant"]:
+				message_key = "team_holds_levels"
+			message = GameConfig.text(message_key) % [get_team_name(winning_team), levels_to_advance]
+		ui_manager.show_center_message(message, 3.0)
 
 	print("Winning team: Team ", winning_team + 1, " level increase: ", levels_to_advance)
 	print("Current levels - Team 1: ", team_levels[0], " Team 2: ", team_levels[1])
-	SoundManager.play_level_up()
+	if levels_to_advance > 0:
+		SoundManager.play_level_up()
 
 	current_level = team_levels[players[dealer_index].team]
 
@@ -1554,6 +1726,8 @@ func get_pattern_name(pattern_type: GameRules.CardPattern) -> String:
 	match pattern_type:
 		GameRules.CardPattern.SINGLE: return "Single"
 		GameRules.CardPattern.PAIR: return "Pair"
+		GameRules.CardPattern.TRIPLE: return "Triple"
+		GameRules.CardPattern.QUADRUPLE: return "Quadruple"
 		GameRules.CardPattern.TRACTOR: return "Tractor"
 		GameRules.CardPattern.THROW: return "Throw"
 		_: return "Invalid"

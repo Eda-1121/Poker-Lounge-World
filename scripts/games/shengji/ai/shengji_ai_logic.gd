@@ -148,26 +148,36 @@ static func score_lead_candidate(
 ) -> float:
 	var pattern = GameRules.identify_pattern(normalize_card_list(cards), trump_suit, current_level)
 	var score = get_play_cost(cards, trump_suit, current_level)
-	score += float(GameRules.calculate_points(cards)) * 2.2
-	score -= float(cards.size() - 1) * 4.0
+	var points = float(GameRules.calculate_points(cards))
+	score += points * 3.5
+	score -= float(cards.size() - 1) * 5.5
 
 	if is_all_trump_cards(cards, trump_suit, current_level):
-		score += 35.0
+		score += 42.0
 	else:
-		score -= 12.0
+		score -= 16.0
 
 	match pattern.pattern_type:
 		GameRules.CardPattern.PAIR:
-			score -= 8.0
+			score -= 11.0
+		GameRules.CardPattern.TRIPLE:
+			score -= 18.0
+		GameRules.CardPattern.QUADRUPLE:
+			score -= 22.0
 		GameRules.CardPattern.TRACTOR:
-			score -= 16.0
+			score -= 18.0 + float(pattern.sequence_length) * 5.0
+		GameRules.CardPattern.THROW:
+			score -= 14.0
 
 	if not cards.is_empty() and cards[0] is Card:
 		var lead_c: Card = cards[0]
 		ShengjiCardLogic.apply_trump(lead_c, trump_suit, current_level)
 		var void_key = VOID_TRUMP if lead_c.is_trump else lead_c.suit
 		if opponent_void_checker.call(ai_player_id, void_key):
-			score += 22.0
+			score += 35.0
+
+	if points == 0.0:
+		score -= 6.0
 
 	return score
 
@@ -184,15 +194,14 @@ static func score_follow_candidate(
 	var points = float(GameRules.calculate_points(cards))
 
 	if teammate_winning:
-		var score = cost - points * 6.0
+		var score = cost - points * 8.0
 		if can_beat:
 			score += 140.0 + cost
 		return score
 
 	if has_winning_candidate:
 		if can_beat:
-			return cost - float(trick_points) * 3.0 - points * 1.5
-		return 10000.0 + cost + points * 5.0
+			return cost - float(trick_points) * 4.0 - points * 2.0
+		return 10000.0 + cost + points * 7.0
 
-	return cost + points * 5.0
-
+	return cost + points * 7.0

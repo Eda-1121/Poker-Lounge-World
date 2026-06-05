@@ -13,6 +13,9 @@ var language: String = "en"
 var total_plays: int = 0
 var wins: int = 0
 
+const SHENGJI_MODE_EASY = "easy"
+const SHENGJI_MODE_HARD = "hard"
+
 const CARD_STYLES = {
 	"default": {
 		"folder": "classic",
@@ -23,10 +26,12 @@ const CARD_STYLES = {
 		"name_key": "card_style_minimal",
 	},
 	"illustrated": {
-		"folder": "illustrated",
+		"folder": "illustrated_ai",
 		"name_key": "card_style_illustrated",
 	},
 }
+
+const CARD_SET_ROOT = "res://assets/common/card_sets"
 
 const TEXT = {
 	"en": {
@@ -63,23 +68,26 @@ const TEXT = {
 		"chinese": "Chinese",
 		"close": "Close",
 		"current_level": "Current Level: %s",
+		"game_mode": "Mode: %s",
+		"shengji_mode_easy": "Easy (%d decks)",
+		"shengji_mode_hard": "Hard (%d decks)",
 		"trump_suit": "Trump Suit: %s",
 		"team_a": "Team A",
 		"team_b": "Team B",
 		"points": "%d pts",
 		"your_turn": "Your turn",
 		"selected": "Selected: %d/%d",
-		"play": "Play Cards",
+		"play": "Play Selected",
 		"confirm_bury": "Confirm Bury",
 		"action_hint_select_play": "Select cards to play",
 		"action_hint_ready_play": "Ready to play",
-		"action_hint_select_bury": "Select exactly 8 cards",
+		"action_hint_select_bury": "Select exactly %d cards",
 		"action_hint_ready_bury": "Ready to bury",
 		"previous_trick": "Previous Trick",
 		"you": "You",
-		"left": "Left",
-		"opposite": "Opposite",
-		"right": "Right",
+		"left": "Player 2",
+		"opposite": "Player 3",
+		"right": "Player 4",
 		"game_over": "Game Over",
 		"team_wins": "Team %s Wins!",
 		"final_level": "Final Level",
@@ -92,6 +100,9 @@ const TEXT = {
 		"no_bid_yet": "No bid yet",
 		"bid_card_count": "%s (%d cards)",
 		"pass": "Pass",
+		"skip_bid_suit": "Skip This Suit",
+		"skip_all_bidding_prompts": "Skip All Prompts",
+		"skip_bidding_prompts": "Skip All Prompts",
 		"player_name": "Player %d",
 		"team_name": "Team %d",
 		"turn_play_cards": "Turn: %s",
@@ -112,14 +123,14 @@ const TEXT = {
 		"suit_no_trump": "No Trump 👑",
 		"bury_hint": "Bury cards: red=avoid / yellow=points / green=safe",
 		"suggested_bury": "Hints show safer cards to bury.",
-		"select_exact_bury": "Please select exactly 8 cards!",
+		"select_exact_bury": "Please select exactly %d cards!",
 		"bury_complete": "Bury complete",
 		"ai_burying": "AI dealer is burying cards...",
 		"not_your_turn": "It is not your turn yet",
 		"select_cards_first": "Please select cards to play first!",
 		"selected_cards_invalid": "Selected cards do not match the play rules!",
 		"invalid_play": "Invalid play!",
-		"throw_failed": "Throw failed! Another player can beat it.",
+		"throw_failed": "Throw failed. Forced to play the smallest valid part.",
 		"cards_played": "Cards played!",
 		"play_failed": "Play failed!",
 		"follow_invalid": "Follow play does not match the rules!",
@@ -130,6 +141,7 @@ const TEXT = {
 		"team_dominates_levels": "%s dominates! +%d levels!",
 		"team_wins_levels": "%s wins! +%d levels!",
 		"team_holds_levels": "%s holds! +%d levels!",
+		"team_takes_dealer": "%s takes dealer side!",
 	},
 	"ja": {
 		"settings": "設定",
@@ -141,8 +153,8 @@ const TEXT = {
 		"how_to_play": "遊び方",
 		"coming_soon": "準備中",
 		"quit": "終了",
-		"game_shengji_name": "シェンジー / トラクター",
-		"game_shengji_sub": "升级 · トラクター",
+		"game_shengji_name": "升级 / Tractor",
+		"game_shengji_sub": "シェンジー · トラクター",
 		"game_shengji_desc": "4人 · 2チーム\n中国のトリックテイキング",
 		"game_hearts_name": "ハーツ",
 		"game_hearts_sub": "ハーツ",
@@ -165,6 +177,9 @@ const TEXT = {
 		"chinese": "中国語",
 		"close": "閉じる",
 		"current_level": "現在レベル: %s",
+		"game_mode": "モード: %s",
+		"shengji_mode_easy": "Easy (%dデック)",
+		"shengji_mode_hard": "Hard (%dデック)",
 		"trump_suit": "切り札スート: %s",
 		"team_a": "チームA",
 		"team_b": "チームB",
@@ -175,13 +190,13 @@ const TEXT = {
 		"confirm_bury": "底札を確定",
 		"action_hint_select_play": "出すカードを選択",
 		"action_hint_ready_play": "出せます",
-		"action_hint_select_bury": "ちょうど8枚選択",
+		"action_hint_select_bury": "ちょうど%d枚選択",
 		"action_hint_ready_bury": "底札を確定できます",
 		"previous_trick": "前の手",
 		"you": "あなた",
-		"left": "左",
-		"opposite": "向かい",
-		"right": "右",
+		"left": "プレイヤー2",
+		"opposite": "プレイヤー3",
+		"right": "プレイヤー4",
 		"game_over": "ゲーム終了",
 		"team_wins": "チーム%s が勝利!",
 		"final_level": "最終レベル",
@@ -194,6 +209,9 @@ const TEXT = {
 		"no_bid_yet": "まだ入札なし",
 		"bid_card_count": "%s (%d枚)",
 		"pass": "パス",
+		"skip_bid_suit": "この花色をスキップ",
+		"skip_all_bidding_prompts": "すべて停止",
+		"skip_bidding_prompts": "すべて停止",
 		"player_name": "プレイヤー%d",
 		"team_name": "チーム%d",
 		"turn_play_cards": "%s の番",
@@ -214,14 +232,14 @@ const TEXT = {
 		"suit_no_trump": "ノートランプ 👑",
 		"bury_hint": "底札選択: 赤=避ける / 黄=点数 / 緑=安全",
 		"suggested_bury": "底札にしやすいカードを色で表示しています。",
-		"select_exact_bury": "ちょうど8枚選択してください!",
+		"select_exact_bury": "ちょうど%d枚選択してください!",
 		"bury_complete": "底札の確定完了",
 		"ai_burying": "AIディーラーが底札を選択中...",
 		"not_your_turn": "まだあなたの番ではありません",
 		"select_cards_first": "先に出すカードを選択してください!",
 		"selected_cards_invalid": "選択したカードはルールに合いません!",
 		"invalid_play": "無効な出し方です!",
-		"throw_failed": "まとめ出し失敗! 他のプレイヤーが上回れます。",
+		"throw_failed": "まとめ出し失敗。出せる最小の形を強制的に出します。",
 		"cards_played": "カードを出しました!",
 		"play_failed": "出せませんでした!",
 		"follow_invalid": "フォローの出し方がルールに合いません!",
@@ -232,6 +250,7 @@ const TEXT = {
 		"team_dominates_levels": "%s が圧勝! +%dレベル!",
 		"team_wins_levels": "%s が勝利! +%dレベル!",
 		"team_holds_levels": "%s が防衛! +%dレベル!",
+		"team_takes_dealer": "%s が親側になります!",
 	},
 	"zh": {
 		"settings": "设置",
@@ -267,6 +286,9 @@ const TEXT = {
 		"chinese": "中文",
 		"close": "关闭",
 		"current_level": "当前等级：%s",
+		"game_mode": "模式：%s",
+		"shengji_mode_easy": "简单（%d副牌）",
+		"shengji_mode_hard": "困难（%d副牌）",
 		"trump_suit": "主花色：%s",
 		"team_a": "A队",
 		"team_b": "B队",
@@ -277,13 +299,13 @@ const TEXT = {
 		"confirm_bury": "确认埋底",
 		"action_hint_select_play": "请选择要出的牌",
 		"action_hint_ready_play": "可以出牌",
-		"action_hint_select_bury": "请选择正好8张",
+		"action_hint_select_bury": "请选择正好%d张",
 		"action_hint_ready_bury": "可以确认埋底",
 		"previous_trick": "上一手",
 		"you": "你",
-		"left": "左",
-		"opposite": "对家",
-		"right": "右",
+		"left": "玩家2",
+		"opposite": "玩家3",
+		"right": "玩家4",
 		"game_over": "游戏结束",
 		"team_wins": "%s队获胜！",
 		"final_level": "最终等级",
@@ -296,6 +318,9 @@ const TEXT = {
 		"no_bid_yet": "尚未叫主",
 		"bid_card_count": "%s（%d张）",
 		"pass": "不叫",
+		"skip_bid_suit": "跳过此花色",
+		"skip_all_bidding_prompts": "本局不再提示",
+		"skip_bidding_prompts": "本局不再提示",
 		"player_name": "玩家%d",
 		"team_name": "%d队",
 		"turn_play_cards": "轮到 %s",
@@ -316,14 +341,14 @@ const TEXT = {
 		"suit_no_trump": "无主 👑",
 		"bury_hint": "埋底：红=避免 / 黄=分牌 / 绿=安全",
 		"suggested_bury": "颜色提示较适合埋底的牌。",
-		"select_exact_bury": "请选择正好8张牌！",
+		"select_exact_bury": "请选择正好%d张牌！",
 		"bury_complete": "埋底完成",
 		"ai_burying": "AI庄家正在埋底...",
 		"not_your_turn": "还没轮到你",
 		"select_cards_first": "请先选择要出的牌！",
 		"selected_cards_invalid": "所选牌不符合出牌规则！",
 		"invalid_play": "出牌无效！",
-		"throw_failed": "甩牌失败！其他玩家可以压住。",
+		"throw_failed": "甩牌失败，将强制打出可出的最小牌型。",
 		"cards_played": "已出牌！",
 		"play_failed": "出牌失败！",
 		"follow_invalid": "跟牌不符合规则！",
@@ -334,6 +359,7 @@ const TEXT = {
 		"team_dominates_levels": "%s 大胜！+%d级！",
 		"team_wins_levels": "%s 获胜！+%d级！",
 		"team_holds_levels": "%s 保庄！+%d级！",
+		"team_takes_dealer": "%s 上台坐庄！",
 	},
 }
 
@@ -352,7 +378,8 @@ func set_language(value: String):
 	language_changed.emit(language)
 
 func set_card_style(style_id: String):
-	if not CARD_STYLES.has(style_id):
+	var styles = get_card_styles()
+	if not styles.has(style_id):
 		style_id = "default"
 	if card_style == style_id:
 		return
@@ -360,13 +387,74 @@ func set_card_style(style_id: String):
 	card_style_changed.emit(card_style)
 
 func get_card_asset_path(card_name: String) -> String:
-	var style = CARD_STYLES.get(card_style, CARD_STYLES["default"])
+	var styles = get_card_styles()
+	var active_style = card_style if styles.has(card_style) else "default"
+	var style = styles.get(active_style, styles["default"])
 	var folder = style.get("folder", "classic")
-	return "res://assets/common/card_sets/%s/%s.png" % [folder, card_name]
+	return "%s/%s/%s.png" % [CARD_SET_ROOT, folder, card_name]
 
 func get_card_style_name(style_id: String) -> String:
-	var style = CARD_STYLES.get(style_id, CARD_STYLES["default"])
-	return text(style.get("name_key", "card_style_default"))
+	var styles = get_card_styles()
+	var style = styles.get(style_id, styles["default"])
+	if style.has("name_key"):
+		return text(style["name_key"])
+	return String(style_id).capitalize()
+
+func get_card_style_ids() -> Array:
+	return get_card_styles().keys()
+
+func get_card_styles() -> Dictionary:
+	var styles = {}
+	var registered_folders = {}
+	for style_id in CARD_STYLES.keys():
+		var style = CARD_STYLES[style_id].duplicate(true)
+		var folder = style.get("folder", style_id)
+		registered_folders[folder] = true
+		if is_complete_card_set(folder):
+			styles[style_id] = style
+
+	var dir = DirAccess.open(CARD_SET_ROOT)
+	if dir == null:
+		return ensure_default_card_style(styles)
+
+	dir.list_dir_begin()
+	var folder = dir.get_next()
+	while folder != "":
+		if dir.current_is_dir() and not folder.begins_with(".") and not registered_folders.has(folder):
+			if is_complete_card_set(folder):
+				styles[folder] = {"folder": folder}
+		folder = dir.get_next()
+	dir.list_dir_end()
+	return ensure_default_card_style(styles)
+
+func ensure_default_card_style(styles: Dictionary) -> Dictionary:
+	if styles.has("default"):
+		return styles
+	if is_complete_card_set("classic"):
+		styles["default"] = {
+			"folder": "classic",
+			"name_key": "card_style_default",
+		}
+	return styles
+
+func is_complete_card_set(folder: String) -> bool:
+	for card_name in get_required_card_asset_names():
+		if not ResourceLoader.exists("%s/%s/%s.png" % [CARD_SET_ROOT, folder, card_name]):
+			return false
+	return true
+
+func get_required_card_asset_names() -> Array[String]:
+	var names: Array[String] = ["card_back", "card_empty", "small_joker", "big_joker"]
+	for suit in ["spade", "heart", "club", "diamond"]:
+		for rank in range(2, 15):
+			names.append("%s_%02d" % [suit, rank])
+	return names
+
+func get_shengji_mode() -> String:
+	return SHENGJI_MODE_HARD if num_decks >= 4 else SHENGJI_MODE_EASY
+
+func get_shengji_bottom_card_count() -> int:
+	return 12 if get_shengji_mode() == SHENGJI_MODE_HARD else 8
 
 func text(key: String) -> String:
 	var table = TEXT.get(language, TEXT["en"])

@@ -1,81 +1,124 @@
-# game_hub.gd - ゲーム選択ハブ（モダンカードUI）
+# game_hub.gd - Pixel card lounge game selection hub
 extends Control
 
 const HelpScreenScene = preload("res://scripts/app/help_screen.gd")
 const SettingsScreenScene = preload("res://scripts/app/settings_screen.gd")
+
+const LOBBY_ASSET_DIR = "res://assets/ui/lobby/"
+const TEX_FELT = LOBBY_ASSET_DIR + "felt_background_clean.png"
+const TEX_STACK_LEFT = LOBBY_ASSET_DIR + "corner_card_stack_left.png"
+const TEX_STACK_RIGHT = LOBBY_ASSET_DIR + "corner_card_stack_right.png"
+const TEX_COIN_SPADE = LOBBY_ASSET_DIR + "coin_spade.png"
+const TEX_COIN_CLUB = LOBBY_ASSET_DIR + "coin_club.png"
+const TEX_SPARKLE = LOBBY_ASSET_DIR + "sparkle.png"
+const TEX_DIVIDER = LOBBY_ASSET_DIR + "ornament_divider.png"
+const TEX_SHADOW_SPADE = LOBBY_ASSET_DIR + "suit_shadow_spade.png"
+const TEX_SHADOW_HEART = LOBBY_ASSET_DIR + "suit_shadow_heart.png"
+const TEX_SHADOW_CLUB = LOBBY_ASSET_DIR + "suit_shadow_club.png"
+const TEX_SHADOW_DIAMOND = LOBBY_ASSET_DIR + "suit_shadow_diamond.png"
+const TEX_CORNER_TL = LOBBY_ASSET_DIR + "corner_ornament_tl.png"
+const TEX_CORNER_TR = LOBBY_ASSET_DIR + "corner_ornament_tr.png"
+const TEX_CORNER_BL = LOBBY_ASSET_DIR + "corner_ornament_bl.png"
+const TEX_CORNER_BR = LOBBY_ASSET_DIR + "corner_ornament_br.png"
+
+const C_FELT = Color(0.027, 0.114, 0.090)
+const C_FELT_DARK = Color(0.012, 0.045, 0.036)
+const C_PANEL_GREEN = Color(0.055, 0.200, 0.153)
+const C_PANEL_GREEN_LIGHT = Color(0.086, 0.290, 0.220)
+const C_GOLD = Color(0.945, 0.768, 0.353)
+const C_GOLD_DARK = Color(0.610, 0.416, 0.145)
+const C_PAPER = Color(0.945, 0.905, 0.796)
+const C_PAPER_DARK = Color(0.720, 0.660, 0.510)
+const C_INK = Color(0.165, 0.141, 0.098)
+const C_MUTED = Color(0.720, 0.705, 0.650)
+const C_RED = Color(0.713, 0.290, 0.208)
+const C_BLUE = Color(0.129, 0.267, 0.353)
+
+const DISPLAY_FONT_CANDIDATES = [
+	"/System/Library/Fonts/Supplemental/Songti.ttc",
+	"/System/Library/Fonts/Hiragino Sans GB.ttc",
+	"/System/Library/Fonts/STHeiti Medium.ttc",
+]
+const UI_FONT_CANDIDATES = [
+	"/System/Library/Fonts/Hiragino Sans GB.ttc",
+	"/System/Library/Fonts/STHeiti Medium.ttc",
+	"/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+]
+const PIXEL_FONT_BY_LANGUAGE = {
+	"en": "res://resources/fonts/fusion-pixel-12px-proportional-latin.ttf",
+	"ja": "res://resources/fonts/fusion-pixel-12px-proportional-ja.ttf",
+	"zh": "res://resources/fonts/fusion-pixel-12px-proportional-zh_hans.ttf",
+}
 
 const GAMES = [
 	{
 		"name_key": "game_shengji_name",
 		"sub_key": "game_shengji_sub",
 		"desc_key": "game_shengji_desc",
-		"icon": "♠♥",
-		"bg":     Color(0.102, 0.173, 0.102),
-		"accent": Color(0.941, 0.788, 0.416),
-		"scene":  "res://scenes/shengji/main.tscn",
+		"icon": "♠ ♥",
+		"scene": "res://scenes/shengji/main.tscn",
 		"available": true,
-		"has_help":  true,
+		"has_help": true,
 		"deck_options": [2, 4],
+		"preview": ["spade_09", "club_10", "heart_11", "big_joker"],
+		"accent": C_GOLD,
 	},
 	{
 		"name_key": "game_hearts_name",
 		"sub_key": "game_hearts_sub",
 		"desc_key": "game_hearts_desc",
 		"icon": "♥",
-		"mini_cards": "♥  ♠Q  ♥",
-		"bg":     Color(0.086, 0.129, 0.196),
-		"accent": Color(0.878, 0.353, 0.431),
-		"scene":  "",
+		"scene": "",
 		"available": false,
+		"preview": ["heart_12", "heart_03", "heart_08", "heart_11", "big_joker"],
+		"accent": C_RED,
 	},
 	{
 		"name_key": "game_bridge_name",
 		"sub_key": "game_bridge_sub",
 		"desc_key": "game_bridge_desc",
-		"icon": "♠♣",
-		"mini_cards": "1♠  2♣  3NT",
-		"bg":     Color(0.086, 0.129, 0.196),
-		"accent": Color(0.353, 0.553, 0.878),
-		"scene":  "",
+		"icon": "♣",
+		"scene": "",
 		"available": false,
+		"preview": ["spade_14", "heart_13", "diamond_12", "club_11", "big_joker"],
+		"accent": Color(0.090, 0.180, 0.220),
 	},
 	{
 		"name_key": "game_poker_name",
 		"sub_key": "game_poker_sub",
 		"desc_key": "game_poker_desc",
 		"icon": "♦",
-		"mini_cards": "A♦  K♠  Q♥",
-		"bg":     Color(0.086, 0.129, 0.196),
-		"accent": Color(0.690, 0.478, 0.243),
-		"scene":  "",
+		"scene": "",
 		"available": false,
+		"preview": ["diamond_14", "club_13", "heart_12", "club_11", "big_joker"],
+		"accent": C_RED,
 	},
 ]
 
 var _sw: float
 var _sh: float
-var _pw: int
-var _ph: int
-var _py: int
-var _gap: int
-var _pws: float
-var _phs: float
-
-func _sy(y: float) -> int:
-	return int(y * _phs)
-
-func _sf(s: float) -> int:
-	return max(9, int(s * _pws))
+var _content_w: float
+var _card_y: float
+var _card_gap: float
+var _selected_w: float
+var _normal_w: float
+var _selected_h: float
+var _normal_h: float
+var _display_font: Font
+var _ui_font: Font
 
 func _ready():
+	_load_lobby_fonts()
 	var window_size = get_target_window_size()
 	get_window().size = window_size
-	get_window().min_size = window_size
+	get_window().min_size = Vector2i(1280, 720)
 	center_window(window_size)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if not GameConfig.language_changed.is_connected(_on_language_changed):
 		GameConfig.language_changed.connect(_on_language_changed)
+	if not get_viewport().size_changed.is_connected(_build):
+		get_viewport().size_changed.connect(_build)
 	_build()
 
 func _build():
@@ -85,321 +128,373 @@ func _build():
 	var vp = get_viewport_rect().size
 	_sw = vp.x
 	_sh = vp.y
+	_content_w = clamp(_sw * 0.84, 1080.0, 1360.0)
+	_card_gap = clamp(_sw * 0.018, 28.0, 40.0)
+	_selected_w = clamp(_content_w * 0.225, 278.0, 320.0)
+	_normal_w = clamp((_content_w - _selected_w - _card_gap * 3.0) / 3.0, 250.0, 300.0)
+	_selected_h = clamp(_sh * 0.50, 390.0, 500.0)
+	_normal_h = clamp(_selected_h * 0.89, 352.0, 440.0)
+	_card_y = clamp(_sh * 0.255, 188.0, 228.0)
 
-	_gap = max(12, int(_sw * 0.012))
-	_pw  = int((_sw - _gap * 5) / 4)
-	_ph  = max(280, min(int(_sh * 0.42), int(_pw * 1.15), 420))
-	_py  = max(152, int(_sh * 0.22))
-	_pws = _pw / 300.0
-	_phs = _ph / 320.0
-
-	_build_bg()
+	_build_background()
+	_build_decorations()
 	_build_header()
-	_build_score_bar()
-	_build_game_panels()
+	_build_stats()
+	_build_game_cards()
 	_build_card_style_selector()
 	_build_footer()
 
-func _build_bg():
-	var bg = ColorRect.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.051, 0.106, 0.165)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
+func _build_background():
+	var bg_texture = _create_texture_rect(TEX_FELT, Vector2.ZERO, Vector2(_sw, _sh), TextureRect.STRETCH_SCALE)
+	bg_texture.modulate = Color(0.68, 0.88, 0.78, 1.0)
+	add_child(bg_texture)
+
+	var vignette = ColorRect.new()
+	vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vignette.color = Color(C_FELT_DARK, 0.48)
+	vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(vignette)
+
+func _build_decorations():
+	_create_corner_stack(Vector2(-22, -22), Vector2(220, 220), TEX_STACK_LEFT, -10.0, 0.58)
+	_create_corner_stack(Vector2(_sw - 170, 16), Vector2(190, 190), TEX_STACK_RIGHT, 10.0, 0.54)
+	_create_corner_stack(Vector2(_sw - 220, _sh - 178), Vector2(260, 260), TEX_STACK_RIGHT, -16.0, 0.55)
+	_create_asset_coin(Vector2(208, 34), TEX_COIN_SPADE, 76.0, 0.88)
+	_create_asset_coin(Vector2(_sw - 214, 84), TEX_COIN_CLUB, 78.0, 0.86)
+	_create_asset_suit_shadow(Vector2(48, _sh - 138), TEX_SHADOW_SPADE, 118.0, 0.14)
+	_create_asset_suit_shadow(Vector2(_sw - 190, _sh - 128), TEX_SHADOW_DIAMOND, 118.0, 0.10)
+	_create_asset_suit_shadow(Vector2(_sw - 144, 194), TEX_SHADOW_CLUB, 94.0, 0.10)
+	_create_asset_suit_shadow(Vector2(118, 166), TEX_SHADOW_HEART, 86.0, 0.09)
+	_create_sparkles()
+
+func _create_corner_stack(pos: Vector2, size: Vector2, texture_path: String, rotation_deg: float, alpha: float):
+	var stack = _create_texture_rect(texture_path, pos, size)
+	stack.rotation_degrees = rotation_deg
+	stack.modulate = Color(1, 1, 1, alpha)
+	add_child(stack)
+
+func _create_asset_coin(pos: Vector2, texture_path: String, diameter: float, alpha: float):
+	var coin = _create_texture_rect(texture_path, pos, Vector2(diameter, diameter))
+	coin.modulate = Color(1, 1, 1, alpha)
+	add_child(coin)
+
+func _create_asset_suit_shadow(pos: Vector2, texture_path: String, size: float, alpha: float):
+	var shadow = _create_texture_rect(texture_path, pos, Vector2(size, size))
+	shadow.modulate = Color(1, 1, 1, alpha)
+	add_child(shadow)
+
+func _create_sparkles():
+	var points = [
+		Vector2(150, 160), Vector2(320, 92), Vector2(_sw - 170, 150),
+		Vector2(_sw - 128, 270), Vector2(72, _sh - 138), Vector2(165, _sh - 86),
+		Vector2(_sw - 92, _sh - 182), Vector2(_sw * 0.72, _sh - 78),
+	]
+	for p in points:
+		if p.x < 0 or p.x > _sw or p.y < 0 or p.y > _sh:
+			continue
+		var s = _create_texture_rect(TEX_SPARKLE, p, Vector2(22, 22))
+		s.modulate = Color(1, 1, 1, 0.86)
+		add_child(s)
 
 func _build_header():
-	var hs = _sh / 720.0
-
 	var title = Label.new()
 	title.text = GameConfig.text("app_title")
-	title.position = Vector2(0, int(14 * hs))
-	title.size = Vector2(_sw, int(40 * hs))
-	title.add_theme_font_size_override("font_size", max(22, int(30 * hs)))
-	title.add_theme_color_override("font_color", Color(1.0, 0.92, 0.38))
+	title.position = Vector2(0, 24)
+	title.size = Vector2(_sw, 58)
+	title.add_theme_font_size_override("font_size", 46)
+	title.add_theme_color_override("font_color", C_GOLD)
+	_apply_display_font(title)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(title)
 
 	var sub = Label.new()
-	sub.text = GameConfig.text("app_title")
-	sub.position = Vector2(0, int(56 * hs))
-	sub.size = Vector2(_sw, int(22 * hs))
-	sub.add_theme_font_size_override("font_size", max(11, int(13 * hs)))
-	sub.add_theme_color_override("font_color", Color(0.60, 0.74, 0.90, 0.65))
+	sub.text = GameConfig.text("game_shengji_sub")
+	sub.position = Vector2(0, 90)
+	sub.size = Vector2(_sw, 30)
+	sub.add_theme_font_size_override("font_size", 24)
+	sub.add_theme_color_override("font_color", Color(C_MUTED, 0.90))
+	_apply_ui_font(sub)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(sub)
 
-	var div_w = 60
-	var div = ColorRect.new()
-	div.size = Vector2(div_w, 2)
-	div.position = Vector2(int((_sw - div_w) / 2), int(82 * hs))
-	div.color = Color(0.941, 0.788, 0.416, 0.75)
-	div.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var div = _create_texture_rect(TEX_DIVIDER, Vector2((_sw - 340.0) * 0.5, 126), Vector2(340, 28))
+	div.modulate = Color(1, 1, 1, 0.72)
 	add_child(div)
 
-func _build_score_bar():
-	var hs = _sh / 720.0
+func _build_stats():
 	var total_plays = GameConfig.total_plays
-	var wins_count  = GameConfig.wins
-	var win_rate_str: String = "—"
+	var wins_count = GameConfig.wins
+	var win_rate_str = "—"
 	if total_plays > 0:
-		win_rate_str = "%d%%" % int(float(wins_count) / float(total_plays) * 100)
+		win_rate_str = "%d%%" % int(float(wins_count) / float(total_plays) * 100.0)
 
 	var items = [
 		[str(total_plays), GameConfig.text("plays")],
-		[str(wins_count),  GameConfig.text("wins")],
-		[win_rate_str,     GameConfig.text("win_rate")],
+		[str(wins_count), GameConfig.text("wins")],
+		[win_rate_str, GameConfig.text("win_rate")],
 	]
+	var item_w = 180.0
+	var start_x = (_sw - item_w * 3.0) * 0.5
+	var y = 164.0
 
-	var bar_w   = int(_sw * 0.32)
-	var bx      = int((_sw - bar_w) / 2)
-	var by      = int(96 * hs)
-	var item_w  = int(bar_w / 3)
+	for i in range(items.size()):
+		var value = Label.new()
+		value.text = items[i][0]
+		value.position = Vector2(start_x + item_w * i, y)
+		value.size = Vector2(item_w, 34)
+		value.add_theme_font_size_override("font_size", 28)
+		value.add_theme_color_override("font_color", C_GOLD)
+		_apply_display_font(value)
+		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		value.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(value)
 
-	for k in items.size():
-		var val_lbl = Label.new()
-		val_lbl.text = items[k][0]
-		val_lbl.position = Vector2(bx + k * item_w, by)
-		val_lbl.size = Vector2(item_w, int(22 * hs))
-		val_lbl.add_theme_font_size_override("font_size", max(13, int(16 * hs)))
-		val_lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.38))
-		val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		val_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(val_lbl)
+		var label = Label.new()
+		label.text = items[i][1]
+		label.position = Vector2(start_x + item_w * i, y + 36)
+		label.size = Vector2(item_w, 28)
+		label.add_theme_font_size_override("font_size", 19)
+		label.add_theme_color_override("font_color", Color(C_MUTED, 0.92))
+		_apply_ui_font(label)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(label)
 
-		var key_lbl = Label.new()
-		key_lbl.text = items[k][1]
-		key_lbl.position = Vector2(bx + k * item_w, by + int(22 * hs))
-		key_lbl.size = Vector2(item_w, int(16 * hs))
-		key_lbl.add_theme_font_size_override("font_size", max(9, int(11 * hs)))
-		key_lbl.add_theme_color_override("font_color", Color(0.60, 0.74, 0.90, 0.55))
-		key_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		key_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(key_lbl)
+func _build_game_cards():
+	var total = _selected_w + _normal_w * 3.0 + _card_gap * 3.0
+	var x = (_sw - total) * 0.5
+	for i in range(GAMES.size()):
+		var selected = i == 0
+		var w = _selected_w if selected else _normal_w
+		var h = _selected_h if selected else _normal_h
+		var y = _card_y + (0.0 if selected else 20.0)
+		_build_game_card(GAMES[i], Vector2(x, y), Vector2(w, h), selected)
+		x += w + _card_gap
 
-func _build_game_panels():
-	for i in GAMES.size():
-		var g  = GAMES[i]
-		var px = _gap + i * (_pw + _gap)
-		_build_panel(g, px)
-
-func _build_panel(g: Dictionary, px: float):
+func _build_game_card(game: Dictionary, pos: Vector2, size: Vector2, selected: bool):
 	var panel = Panel.new()
-	panel.position = Vector2(px, _py)
-	panel.size = Vector2(_pw, _ph)
+	panel.position = pos
+	panel.size = size
 	panel.clip_contents = true
-
-	var ps = StyleBoxFlat.new()
-	ps.bg_color = g["bg"]
-	ps.set_corner_radius_all(12)
-	ps.border_color = Color(g["accent"], 0.45 if g["available"] else 0.18)
-	ps.set_border_width_all(1)
-	panel.add_theme_stylebox_override("panel", ps)
-
-	if not g["available"]:
-		panel.modulate = Color(1, 1, 1, 0.75)
-
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if selected:
+		panel.add_theme_stylebox_override("panel", _style_box(C_PANEL_GREEN, C_GOLD, 4, 4))
+	else:
+		panel.add_theme_stylebox_override("panel", _style_box(C_PAPER, C_PAPER_DARK, 3, 4))
+		if not game["available"]:
+			panel.modulate = Color(1, 1, 1, 0.84)
 	add_child(panel)
 
-	# スートアイコン
-	var gc = g["accent"]
-	var icon_lbl = Label.new()
-	icon_lbl.text = g["icon"]
-	icon_lbl.position = Vector2(int(12 * _pws), _sy(10))
-	icon_lbl.size = Vector2(_pw - int(24 * _pws), _sy(36))
-	icon_lbl.add_theme_font_size_override("font_size", _sf(18))
-	icon_lbl.add_theme_color_override("font_color", Color(gc.r, gc.g, gc.b, 0.85 if g["available"] else 0.40))
-	icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	icon_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(icon_lbl)
+	_add_card_corner_ornaments(panel, selected)
+	_add_game_card_content(panel, game, size, selected)
 
-	# ゲーム名
-	var name_lbl = Label.new()
-	name_lbl.text = GameConfig.text(g["name_key"])
-	name_lbl.position = Vector2(int(12 * _pws), _sy(52))
-	name_lbl.size = Vector2(_pw - int(24 * _pws), _sy(26))
-	name_lbl.add_theme_font_size_override("font_size", _sf(15))
-	name_lbl.add_theme_color_override("font_color", Color(1, 1, 1) if g["available"] else Color(0.85, 0.85, 0.85, 0.65))
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(name_lbl)
+func _add_card_corner_ornaments(panel: Panel, selected: bool):
+	var ornament_size = Vector2(32, 32) if selected else Vector2(28, 28)
+	var offset = Vector2(13, 13) if selected else Vector2(10, 10)
+	var alpha = 0.88 if selected else 0.48
+	var items = [
+		[TEX_CORNER_TL, offset],
+		[TEX_CORNER_TR, Vector2(panel.size.x - offset.x - ornament_size.x, offset.y)],
+		[TEX_CORNER_BL, Vector2(offset.x, panel.size.y - offset.y - ornament_size.y)],
+		[TEX_CORNER_BR, Vector2(panel.size.x - offset.x - ornament_size.x, panel.size.y - offset.y - ornament_size.y)],
+	]
+	for item in items:
+		var rect = _create_texture_rect(item[0], item[1], ornament_size)
+		rect.modulate = Color(1, 1, 1, alpha)
+		panel.add_child(rect)
 
-	# サブタイトル
-	var sub_lbl = Label.new()
-	sub_lbl.text = GameConfig.text(g["sub_key"])
-	sub_lbl.position = Vector2(int(12 * _pws), _sy(78))
-	sub_lbl.size = Vector2(_pw - int(24 * _pws), _sy(18))
-	sub_lbl.add_theme_font_size_override("font_size", _sf(11))
-	sub_lbl.add_theme_color_override("font_color", Color(0.70, 0.80, 0.70, 0.70) if g["available"] else Color(0.55, 0.55, 0.55, 0.50))
-	sub_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(sub_lbl)
+func _add_game_card_content(panel: Panel, game: Dictionary, size: Vector2, selected: bool):
+	var accent: Color = game["accent"]
+	var text_col = C_GOLD if selected else C_INK
+	var muted_col = Color(0.88, 0.84, 0.70) if selected else Color(C_INK, 0.86)
+	var deck_y = size.y - 150.0 if selected else size.y - 100.0
+	var action_y = size.y - 104.0 if selected else size.y - 64.0
+	var help_y = size.y - 54.0
+
+	var icon = Label.new()
+	icon.text = game["icon"]
+	icon.position = Vector2(0, 24)
+	icon.size = Vector2(size.x, 32)
+	icon.add_theme_font_size_override("font_size", 24)
+	icon.add_theme_color_override("font_color", accent if selected else Color(accent, 0.95))
+	_apply_ui_font(icon)
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(icon)
+
+	var title = Label.new()
+	title.text = GameConfig.text(game["name_key"])
+	title.position = Vector2(18, 60)
+	title.size = Vector2(size.x - 36, 58)
+	title.add_theme_font_size_override("font_size", _get_card_title_font_size(title.text, selected))
+	title.add_theme_color_override("font_color", text_col)
+	_apply_display_font(title)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(title)
 
 	var sep = ColorRect.new()
-	sep.position = Vector2(int(12 * _pws), _sy(102))
-	sep.size = Vector2(_pw - int(24 * _pws), 1)
-	sep.color = Color(gc.r, gc.g, gc.b, 0.20 if g["available"] else 0.10)
+	sep.position = Vector2(52, 122)
+	sep.size = Vector2(size.x - 104, 2)
+	sep.color = Color(C_GOLD if selected else C_PAPER_DARK, 0.80)
 	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(sep)
 
-	# 説明文
-	var desc_lbl = Label.new()
-	desc_lbl.text = GameConfig.text(g["desc_key"])
-	desc_lbl.position = Vector2(int(12 * _pws), _sy(110))
-	desc_lbl.size = Vector2(_pw - int(24 * _pws), _sy(56))
-	desc_lbl.add_theme_font_size_override("font_size", _sf(11))
-	desc_lbl.add_theme_color_override("font_color", Color(0.75, 0.85, 0.75, 0.80) if g["available"] else Color(0.50, 0.50, 0.50, 0.55))
-	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(desc_lbl)
+	var preview_y = 158.0 if selected else 142.0
+	_add_card_preview(panel, game["preview"], Vector2(size.x * 0.5, preview_y), selected)
 
-	var bottom_pad = _sy(12)
-	var link_h     = _sy(16)
-	var link_gap   = _sy(8)
-	var btn_h      = _sy(36)
+	var meta = Label.new()
+	meta.text = _first_line(GameConfig.text(game["desc_key"]))
+	meta.position = Vector2(24, deck_y - 78.0 if selected else size.y - 132)
+	meta.size = Vector2(size.x - 48, 30)
+	meta.add_theme_font_size_override("font_size", 19 if selected else 17)
+	meta.add_theme_color_override("font_color", muted_col)
+	_apply_ui_font(meta)
+	meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(meta)
 
-	if g["available"]:
-		if g.has("deck_options"):
-			_build_deck_selector(panel, g)
+	var desc = Label.new()
+	desc.text = _second_line(GameConfig.text(game["desc_key"]))
+	desc.position = Vector2(26, deck_y - 48.0 if selected else size.y - 104)
+	desc.size = Vector2(size.x - 52, 44)
+	desc.add_theme_font_size_override("font_size", 17 if selected else 15)
+	desc.add_theme_color_override("font_color", muted_col)
+	_apply_ui_font(desc)
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(desc)
 
-		var btn_y: int
-		if g.get("has_help", false):
-			btn_y = _ph - bottom_pad - link_h - link_gap - btn_h
-		else:
-			btn_y = _ph - bottom_pad - btn_h
-
-		var play_btn = Button.new()
-		play_btn.text = "▶  %s" % GameConfig.text("play_game")
-		play_btn.position = Vector2(int(12 * _pws), btn_y)
-		play_btn.size = Vector2(_pw - int(24 * _pws), btn_h)
-		play_btn.add_theme_font_size_override("font_size", _sf(15))
-		play_btn.add_theme_color_override("font_color", Color(0.08, 0.06, 0.02))
-		var acc = g["accent"]
-		var mk_play = func(col: Color) -> StyleBoxFlat:
-			var s = StyleBoxFlat.new()
-			s.bg_color = col
-			s.set_corner_radius_all(8)
-			s.set_border_width_all(0)
-			s.content_margin_left  = 6
-			s.content_margin_right = 6
-			return s
-		play_btn.add_theme_stylebox_override("normal",  mk_play.call(acc))
-		play_btn.add_theme_stylebox_override("hover",   mk_play.call(acc.lightened(0.15)))
-		play_btn.add_theme_stylebox_override("pressed", mk_play.call(acc.darkened(0.12)))
-		var scene_path = g["scene"]
-		play_btn.pressed.connect(func(): _on_play_pressed(scene_path))
-		panel.add_child(play_btn)
-
-		if g.get("has_help", false):
-			var help_btn = Button.new()
-			help_btn.text = GameConfig.text("how_to_play")
-			help_btn.position = Vector2(int(12 * _pws), _ph - bottom_pad - link_h)
-			help_btn.size = Vector2(_pw - int(24 * _pws), link_h)
-			help_btn.add_theme_font_size_override("font_size", _sf(11))
-			help_btn.add_theme_color_override("font_color", Color(0.55, 0.78, 1.0, 0.75))
-			var ts = StyleBoxEmpty.new()
-			help_btn.add_theme_stylebox_override("normal",  ts)
-			help_btn.add_theme_stylebox_override("hover",   ts)
-			help_btn.add_theme_stylebox_override("pressed", ts)
-			help_btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
-			help_btn.pressed.connect(_on_help_pressed)
-			panel.add_child(help_btn)
+	if game["available"]:
+		_add_deck_selector(panel, game, Vector2((size.x - 186.0) * 0.5, deck_y))
+		_add_primary_game_button(panel, GameConfig.text("play_game"), Vector2(44, action_y), Vector2(size.x - 88, 40), game["scene"])
+		if game.get("has_help", false):
+			_add_help_button(panel, Vector2(70, help_y), Vector2(size.x - 140, 22))
 	else:
-		if g.has("mini_cards"):
-			var mc = Label.new()
-			mc.text = g["mini_cards"]
-			mc.position = Vector2(int(12 * _pws), _sy(174))
-			mc.size = Vector2(_pw - int(24 * _pws), _sy(28))
-			mc.add_theme_font_size_override("font_size", _sf(13))
-			mc.add_theme_color_override("font_color", Color(gc.r, gc.g, gc.b, 0.50))
-			mc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			mc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			panel.add_child(mc)
+		_add_disabled_button(panel, Vector2((size.x - 132) * 0.5, size.y - 64), Vector2(132, 36))
 
-		var badge_w = int(82 * _pws)
-		var badge_h = _sy(22)
-		var badge = Button.new()
-		badge.text = GameConfig.text("coming_soon")
-		badge.position = Vector2(int((_pw - badge_w) / 2), _ph - bottom_pad - badge_h)
-		badge.size = Vector2(badge_w, badge_h)
-		badge.disabled = true
-		badge.add_theme_font_size_override("font_size", _sf(11))
-		badge.add_theme_color_override("font_color", Color(gc.r, gc.g, gc.b, 0.65))
-		var bs = StyleBoxFlat.new()
-		bs.bg_color     = Color(0, 0, 0, 0)
-		bs.border_color = Color(gc.r, gc.g, gc.b, 0.38)
-		bs.set_border_width_all(1)
-		bs.set_corner_radius_all(11)
-		badge.add_theme_stylebox_override("normal",   bs)
-		badge.add_theme_stylebox_override("disabled", bs)
-		panel.add_child(badge)
+func _add_card_preview(parent: Control, card_names: Array, center: Vector2, selected: bool):
+	var card_w = 50.0 if selected else 44.0
+	var card_h = 70.0 if selected else 62.0
+	var overlap = 29.0 if selected else 25.0
+	var start_x = center.x - ((card_names.size() - 1) * overlap + card_w) * 0.5
 
-func _build_deck_selector(panel: Panel, g: Dictionary):
-	var deck_opts: Array = g["deck_options"]
-	var deck_btns: Array = []
-	var acc = g["accent"]
-	var dbw = int(48 * _pws)
-	var dbh = _sy(20)
-	var dbx = int(12 * _pws)
-	var dby = _sy(172)
+	for i in range(card_names.size()):
+		var rect = TextureRect.new()
+		rect.position = Vector2(start_x + i * overlap, center.y + abs(i - card_names.size() / 2.0) * 3.0)
+		rect.size = Vector2(card_w, card_h)
+		rect.rotation_degrees = (float(i) - float(card_names.size() - 1) * 0.5) * 5.0
+		rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var tex = load(GameConfig.get_card_asset_path(card_names[i]))
+		if tex:
+			rect.texture = tex
+		parent.add_child(rect)
 
-	for val in deck_opts:
-		var db = Button.new()
-		db.text = "×%d" % val
-		db.position = Vector2(dbx, dby)
-		db.size = Vector2(dbw, dbh)
-		db.add_theme_font_size_override("font_size", _sf(11))
-		panel.add_child(db)
-		deck_btns.append(db)
-		dbx += dbw + int(6 * _pws)
+func _add_deck_selector(parent: Control, game: Dictionary, pos: Vector2):
+	var opts: Array = game["deck_options"]
+	var buttons: Array[Button] = []
+	var x = pos.x
+	for opt in opts:
+		var btn = Button.new()
+		btn.text = "×%d" % opt
+		btn.position = Vector2(x, pos.y)
+		btn.size = Vector2(78, 28)
+		btn.add_theme_font_size_override("font_size", 18)
+		_apply_button_font(btn)
+		parent.add_child(btn)
+		buttons.append(btn)
+		x += 108
 
-	var refresh_deck = func():
-		for k in deck_btns.size():
-			var act = GameConfig.num_decks == deck_opts[k]
-			var sn = StyleBoxFlat.new()
-			sn.bg_color     = Color(acc.r * 0.22, acc.g * 0.22, acc.b * 0.08, 0.85) if act else Color(0, 0, 0, 0)
-			sn.border_color = Color(acc, 0.80 if act else 0.28)
-			sn.set_border_width_all(1)
-			sn.set_corner_radius_all(10)
-			sn.content_margin_left  = 4
-			sn.content_margin_right = 4
-			deck_btns[k].add_theme_stylebox_override("normal", sn)
-			var snh = sn.duplicate()
-			snh.bg_color = Color(acc.r * 0.18, acc.g * 0.18, acc.b * 0.06, 0.70)
-			deck_btns[k].add_theme_stylebox_override("hover", snh)
-			deck_btns[k].add_theme_color_override("font_color",
-				Color(acc, 1.0) if act else Color(acc.r, acc.g, acc.b, 0.55))
+	var refresh = func():
+		for i in range(buttons.size()):
+			var active = GameConfig.num_decks == opts[i]
+			buttons[i].add_theme_stylebox_override("normal", _button_style(C_GOLD if active else C_PANEL_GREEN_LIGHT, C_GOLD, active))
+			buttons[i].add_theme_stylebox_override("hover", _button_style(Color(C_GOLD, 0.90), C_GOLD, true))
+			buttons[i].add_theme_color_override("font_color", C_INK if active else Color(C_GOLD, 0.72))
 
-	for k in deck_btns.size():
-		var opt_val = deck_opts[k]
-		deck_btns[k].pressed.connect(func():
+	for i in range(buttons.size()):
+		var deck_value = opts[i]
+		buttons[i].pressed.connect(func():
 			SoundManager.play_card_click()
-			GameConfig.num_decks = opt_val
-			refresh_deck.call()
+			GameConfig.num_decks = deck_value
+			refresh.call()
 		)
-	refresh_deck.call()
+	refresh.call()
+
+func _add_primary_game_button(parent: Control, text: String, pos: Vector2, size: Vector2, scene_path: String):
+	var btn = Button.new()
+	btn.text = "▶  %s" % text
+	btn.position = pos
+	btn.size = size
+	btn.add_theme_font_size_override("font_size", 24)
+	btn.add_theme_color_override("font_color", C_INK)
+	_apply_button_font(btn)
+	btn.add_theme_stylebox_override("normal", _button_style(C_GOLD, C_GOLD_DARK, true))
+	btn.add_theme_stylebox_override("hover", _button_style(C_GOLD.lightened(0.10), C_GOLD_DARK, true))
+	btn.add_theme_stylebox_override("pressed", _button_style(C_GOLD.darkened(0.12), C_GOLD_DARK, true))
+	btn.pressed.connect(func(): _on_play_pressed(scene_path))
+	parent.add_child(btn)
+
+func _add_help_button(parent: Control, pos: Vector2, size: Vector2):
+	var btn = Button.new()
+	btn.text = "▣  %s" % GameConfig.text("how_to_play")
+	btn.position = pos
+	btn.size = size
+	btn.add_theme_font_size_override("font_size", 16)
+	btn.add_theme_color_override("font_color", Color(C_PAPER, 0.92))
+	_apply_button_font(btn)
+	btn.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	btn.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+	btn.pressed.connect(_on_help_pressed)
+	parent.add_child(btn)
+
+func _add_disabled_button(parent: Control, pos: Vector2, size: Vector2):
+	var btn = Button.new()
+	btn.text = GameConfig.text("coming_soon")
+	btn.position = pos
+	btn.size = size
+	btn.disabled = true
+	btn.add_theme_font_size_override("font_size", 17)
+	btn.add_theme_color_override("font_disabled_color", Color(C_INK, 0.55))
+	_apply_button_font(btn)
+	btn.add_theme_stylebox_override("disabled", _button_style(Color(C_PAPER_DARK, 0.20), Color(C_INK, 0.36), false))
+	parent.add_child(btn)
 
 func _build_card_style_selector():
-	var style_ids = GameConfig.CARD_STYLES.keys()
+	var style_ids = GameConfig.get_card_style_ids()
 	if style_ids.is_empty():
 		return
+	if not style_ids.has(GameConfig.card_style):
+		GameConfig.set_card_style("default")
 
-	var label_w = int(132 * _pws)
-	var btn_w = int(112 * _pws)
-	var btn_h = int(30 * _phs)
-	var gap = int(8 * _pws)
-	var total_w = label_w + gap + style_ids.size() * btn_w + max(0, style_ids.size() - 1) * gap
-	var x = int((_sw - total_w) * 0.5)
-	var y = int(_py + _ph + max(14.0, (_sh - _py - _ph) * 0.16))
+	var btn_w = 150.0
+	var btn_h = 42.0
+	var label_w = 158.0
+	var gap = 10.0
+	var total_w = label_w + style_ids.size() * btn_w + style_ids.size() * gap
+	var x = (_sw - total_w) * 0.5
+	var y = min(_sh - 136.0, _card_y + _selected_h + 16.0)
 
 	var label = Label.new()
 	label.text = GameConfig.text("card_design")
-	label.position = Vector2(x, y + 4)
+	label.position = Vector2(x, y + 7)
 	label.size = Vector2(label_w, btn_h)
-	label.add_theme_font_size_override("font_size", _sf(12))
-	label.add_theme_color_override("font_color", Color(0.60, 0.74, 0.90, 0.70))
+	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_color_override("font_color", C_GOLD)
+	_apply_ui_font(label)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(label)
+
+	var style_divider = _create_texture_rect(TEX_DIVIDER, Vector2(x - 68, y + 6), Vector2(58, 30))
+	style_divider.modulate = Color(1, 1, 1, 0.72)
+	add_child(style_divider)
 
 	x += label_w + gap
 	for style_id in style_ids:
@@ -408,7 +503,8 @@ func _build_card_style_selector():
 		btn.text = GameConfig.get_card_style_name(style_to_set)
 		btn.position = Vector2(x, y)
 		btn.size = Vector2(btn_w, btn_h)
-		btn.add_theme_font_size_override("font_size", _sf(12))
+		btn.add_theme_font_size_override("font_size", 20)
+		_apply_button_font(btn)
 		_style_card_style_button(btn, style_to_set == GameConfig.card_style)
 		btn.pressed.connect(func():
 			SoundManager.play_card_click()
@@ -419,59 +515,139 @@ func _build_card_style_selector():
 		x += btn_w + gap
 
 func _style_card_style_button(btn: Button, active: bool):
-	var acc = Color(0.941, 0.788, 0.416)
-	var mk = func(bg: Color, border: Color) -> StyleBoxFlat:
-		var s = StyleBoxFlat.new()
-		s.bg_color = bg
-		s.border_color = border
-		s.set_border_width_all(1)
-		s.set_corner_radius_all(8)
-		s.content_margin_left = 8
-		s.content_margin_right = 8
-		return s
 	if active:
-		btn.add_theme_stylebox_override("normal", mk.call(Color(acc, 0.95), Color(acc, 1.0)))
-		btn.add_theme_stylebox_override("hover", mk.call(Color(acc.lightened(0.10), 1.0), Color(acc, 1.0)))
-		btn.add_theme_stylebox_override("pressed", mk.call(Color(acc.darkened(0.12), 1.0), Color(acc, 1.0)))
-		btn.add_theme_color_override("font_color", Color(0.08, 0.06, 0.02))
+		btn.add_theme_stylebox_override("normal", _button_style(C_GOLD, C_GOLD_DARK, true))
+		btn.add_theme_stylebox_override("hover", _button_style(C_GOLD.lightened(0.10), C_GOLD_DARK, true))
+		btn.add_theme_stylebox_override("pressed", _button_style(C_GOLD.darkened(0.12), C_GOLD_DARK, true))
+		btn.add_theme_color_override("font_color", C_INK)
 	else:
-		btn.add_theme_stylebox_override("normal", mk.call(Color(0.03, 0.07, 0.11, 0.65), Color(acc, 0.28)))
-		btn.add_theme_stylebox_override("hover", mk.call(Color(0.05, 0.11, 0.17, 0.85), Color(acc, 0.48)))
-		btn.add_theme_stylebox_override("pressed", mk.call(Color(0.025, 0.055, 0.085, 0.85), Color(acc, 0.55)))
-		btn.add_theme_color_override("font_color", Color(acc, 0.78))
+		btn.add_theme_stylebox_override("normal", _button_style(Color(C_FELT_DARK, 0.92), Color(C_GOLD, 0.32), false))
+		btn.add_theme_stylebox_override("hover", _button_style(Color(C_PANEL_GREEN_LIGHT, 0.82), Color(C_GOLD, 0.54), false))
+		btn.add_theme_stylebox_override("pressed", _button_style(Color(C_FELT_DARK, 1.0), Color(C_GOLD, 0.62), false))
+		btn.add_theme_color_override("font_color", Color(C_GOLD, 0.74))
 
 func _build_footer():
-	var btn_w   = int(160 * _pws)
-	var btn_h   = int(38 * _phs)
-	var btn_gap = int(20 * _pws)
-	var total_w = btn_w * 2 + btn_gap
-	var bx      = int((_sw - total_w) / 2)
-	var by      = int(_py + _ph + (_sh - _py - _ph) * 0.54)
+	var btn_w = 280.0
+	var btn_h = 54.0
+	var gap = 30.0
+	var x = (_sw - btn_w * 2.0 - gap) * 0.5
+	var y = _sh - 70.0
+	_add_footer_button("⚙  %s" % GameConfig.text("settings"), Vector2(x, y), Vector2(btn_w, btn_h), C_BLUE, _on_settings_pressed)
+	_add_footer_button("↪  %s" % GameConfig.text("quit"), Vector2(x + btn_w + gap, y), Vector2(btn_w, btn_h), C_RED, _on_quit_pressed)
 
-	_add_footer_button(GameConfig.text("settings"), Vector2(bx, by), btn_w, btn_h,
-		Color(0.40, 0.70, 1.00), _on_settings_pressed)
-	_add_footer_button(GameConfig.text("quit"), Vector2(bx + btn_w + btn_gap, by), btn_w, btn_h,
-		Color(1.00, 0.40, 0.50), _on_quit_pressed)
-
-func _add_footer_button(text: String, pos: Vector2, w: int, h: int, accent: Color, callback: Callable):
+func _add_footer_button(text: String, pos: Vector2, size: Vector2, accent: Color, callback: Callable):
 	var btn = Button.new()
 	btn.text = text
 	btn.position = pos
-	btn.size = Vector2(w, h)
-	btn.add_theme_font_size_override("font_size", _sf(15))
-	btn.add_theme_color_override("font_color", Color(accent.r, accent.g, accent.b, 0.88))
-	var mk = func(alpha: float) -> StyleBoxFlat:
-		var s = StyleBoxFlat.new()
-		s.bg_color     = Color(accent.r, accent.g, accent.b, alpha)
-		s.border_color = Color(accent.r, accent.g, accent.b, 0.50)
-		s.set_border_width_all(1)
-		s.set_corner_radius_all(8)
-		return s
-	btn.add_theme_stylebox_override("normal",  mk.call(0.0))
-	btn.add_theme_stylebox_override("hover",   mk.call(0.12))
-	btn.add_theme_stylebox_override("pressed", mk.call(0.22))
+	btn.size = size
+	btn.add_theme_font_size_override("font_size", 24)
+	btn.add_theme_color_override("font_color", C_PAPER)
+	_apply_button_font(btn)
+	btn.add_theme_stylebox_override("normal", _button_style(accent, accent.darkened(0.45), true))
+	btn.add_theme_stylebox_override("hover", _button_style(accent.lightened(0.10), accent.darkened(0.40), true))
+	btn.add_theme_stylebox_override("pressed", _button_style(accent.darkened(0.12), accent.darkened(0.55), true))
 	btn.pressed.connect(callback)
 	add_child(btn)
+
+func _style_box(bg: Color, border: Color, border_width: int, radius: int) -> StyleBoxFlat:
+	var style = StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.set_border_width_all(border_width)
+	style.set_corner_radius_all(radius)
+	style.shadow_color = Color(0, 0, 0, 0.38)
+	style.shadow_size = 10
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	return style
+
+func _button_style(bg: Color, border: Color, strong: bool) -> StyleBoxFlat:
+	var style = StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.set_border_width_all(2 if strong else 1)
+	style.set_corner_radius_all(2)
+	style.shadow_color = Color(0, 0, 0, 0.42)
+	style.shadow_size = 5 if strong else 2
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	return style
+
+func _get_card_title_font_size(text: String, selected: bool) -> int:
+	var base = 24 if selected else 21
+	if GameConfig.language == "ja":
+		base -= 2
+	if text.length() >= 9:
+		base -= 2
+	if text.length() >= 12:
+		base -= 2
+	return max(16, base)
+
+func _load_lobby_fonts():
+	var pixel_font = _load_project_font(PIXEL_FONT_BY_LANGUAGE.get(GameConfig.language, PIXEL_FONT_BY_LANGUAGE["en"]))
+	_display_font = pixel_font if pixel_font else _load_first_font(DISPLAY_FONT_CANDIDATES)
+	_ui_font = pixel_font if pixel_font else _load_first_font(UI_FONT_CANDIDATES)
+
+func _load_first_font(paths: Array) -> Font:
+	for path in paths:
+		if not FileAccess.file_exists(path):
+			continue
+		var font = FontFile.new()
+		var err = font.load_dynamic_font(path)
+		if err == OK:
+			return font
+	return null
+
+func _load_project_font(path: String) -> Font:
+	if not FileAccess.file_exists(ProjectSettings.globalize_path(path)):
+		return null
+	var font = FontFile.new()
+	var err = font.load_dynamic_font(ProjectSettings.globalize_path(path))
+	return font if err == OK else null
+
+func _apply_display_font(control: Control):
+	if _display_font:
+		control.add_theme_font_override("font", _display_font)
+		control.add_theme_constant_override("outline_size", 1)
+		control.add_theme_color_override("font_outline_color", Color(0.18, 0.11, 0.02, 0.62))
+
+func _apply_ui_font(control: Control):
+	if _ui_font:
+		control.add_theme_font_override("font", _ui_font)
+
+func _apply_button_font(button: Button):
+	_apply_ui_font(button)
+	button.add_theme_constant_override("outline_size", 0)
+
+func _create_texture_rect(texture_path: String, pos: Vector2, size: Vector2, stretch_mode: TextureRect.StretchMode = TextureRect.STRETCH_SCALE) -> TextureRect:
+	var rect = TextureRect.new()
+	rect.texture = _load_png_texture_for_size(texture_path, Vector2i(max(1, int(size.x)), max(1, int(size.y))))
+	rect.position = pos
+	rect.size = size
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = stretch_mode
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rect
+
+func _load_png_texture_for_size(texture_path: String, target_size: Vector2i) -> Texture2D:
+	var image = Image.new()
+	var err = image.load(ProjectSettings.globalize_path(texture_path))
+	if err != OK:
+		push_warning("Unable to load lobby texture: %s" % texture_path)
+		return null
+	if target_size.x > 0 and target_size.y > 0 and image.get_size() != target_size:
+		image.resize(target_size.x, target_size.y, Image.INTERPOLATE_NEAREST)
+	return ImageTexture.create_from_image(image)
+
+func _first_line(text: String) -> String:
+	var parts = text.split("\n", false)
+	return parts[0] if parts.size() > 0 else text
+
+func _second_line(text: String) -> String:
+	var parts = text.split("\n", false)
+	return parts[1] if parts.size() > 1 else ""
 
 func _on_play_pressed(scene_path: String):
 	SoundManager.play_card_click()
@@ -491,6 +667,7 @@ func _on_settings_pressed():
 func _on_language_changed(_language: String):
 	if get_children().any(func(child): return child is SettingsScreen):
 		return
+	_load_lobby_fonts()
 	_build()
 
 func _on_quit_pressed():

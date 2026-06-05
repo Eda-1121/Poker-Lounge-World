@@ -4,10 +4,10 @@ class_name ShengjiTableLayout
 
 static func get_player_positions(table_size: Vector2) -> Array[Vector2]:
 	return [
-		Vector2(table_size.x * 0.5, table_size.y - 170.0),
-		Vector2(max(70.0, table_size.x * 0.045), table_size.y * 0.46),
-		Vector2(table_size.x * 0.5, max(64.0, table_size.y * 0.07)),
-		Vector2(table_size.x - max(230.0, table_size.x * 0.14), table_size.y * 0.46)
+		Vector2(table_size.x * 0.50, table_size.y * 0.79),
+		Vector2(table_size.x * 0.08, table_size.y * 0.46),
+		Vector2(table_size.x * 0.50, table_size.y * 0.12),
+		Vector2(table_size.x * 0.88, table_size.y * 0.46)
 	]
 
 static func get_play_area_positions(table_size: Vector2) -> Array[Vector2]:
@@ -17,4 +17,3 @@ static func get_play_area_positions(table_size: Vector2) -> Array[Vector2]:
 		Vector2(table_size.x * 0.5, table_size.y * 0.30),
 		Vector2(table_size.x * 0.72, table_size.y * 0.48)
 	]
-
