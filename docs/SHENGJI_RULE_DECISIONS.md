@@ -12,6 +12,7 @@
 | Same-team bidding | Same-team players can also override the current bid if they use more cards. | Decided |
 | Joker / no-trump bidding | Joker bidding is allowed and creates a no-trump round. No-trump bid count uses identical joker rank only: two Big Jokers or two Small Jokers can make a 2-card no-trump bid, but one Big Joker plus one Small Joker cannot. In no-trump, only level cards and jokers are trump. | Decided |
 | Bidding timing | Players can bid during dealing, then there is one final bidding opportunity after dealing. | Decided |
+| Dealer seat | Bidding chooses trump only. The bidder does not become dealer. If the dealer side holds, the next dealer is the current dealer's partner. If attackers take over, the next dealer is the next player in turn order from the attacking team. | Decided |
 | Trump ranking with suit | Big Joker > Small Joker > level card in trump suit > level cards in other suits > regular trump-suit cards. | Decided |
 | Trump ranking no-trump | Big Joker > Small Joker > level cards. All four level-card suits are equal strength in no-trump. | Decided |
 | Tractor level skip | Current level rank is skipped for tractor continuity. For example, at Level 5, 4-4 + 6-6 is continuous. | Decided |

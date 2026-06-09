@@ -313,8 +313,9 @@ func finish_dealing():
 	# Check whether any player can counter-bid with more level cards.
 	await check_final_bidding_opportunity()
 
-	# Step 5: Determine trump and dealer.
-	print("Step 5: Determine trump and dealer")
+	# Step 5: Determine trump. The bidder chooses trump, but the current
+	# dealer seat stays dealer for this round.
+	print("Step 5: Determine trump")
 	if ui_manager and ui_manager.has_node("BiddingUI"):
 		var bidding_ui = ui_manager.get_node("BiddingUI")
 		bidding_ui.hide_bidding_ui()
@@ -327,8 +328,8 @@ func finish_dealing():
 		print("No bid. Dealer team defaults to Spades")
 	else:
 		trump_suit = current_bid["suit"]
-		dealer_index = current_bid["player_id"]
-		print("Bid accepted. New dealer: ", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
+		current_bid["team"] = players[dealer_index].team
+		print("Bid accepted. Dealer remains: ", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
 
 	if ui_manager:
 		ui_manager.update_trump_suit(get_trump_display_name())
@@ -634,7 +635,7 @@ func finish_bidding():
 		current_bid["player_id"] = dealer_index
 	else:
 		trump_suit = current_bid["suit"]
-		dealer_index = current_bid["player_id"]
+		current_bid["team"] = players[dealer_index].team
 	
 	if ui_manager:
 		ui_manager.update_trump_suit(get_trump_display_name())
@@ -1662,8 +1663,7 @@ func end_round():
 
 	if levels_to_advance > 0:
 		team_levels[winning_team] += levels_to_advance
-	if result["dealer_rotates"]:
-		dealer_index = (dealer_index + 1) % 4
+	dealer_index = get_next_dealer_index(dealer_index, dealer_team, winning_team)
 
 	if ui_manager:
 		var message = ""
@@ -1690,6 +1690,21 @@ func end_round():
 		show_game_over_screen()
 	else:
 		start_new_round()
+
+func get_next_dealer_index(previous_dealer_index: int, previous_dealer_team: int, next_dealer_team: int) -> int:
+	if next_dealer_team == previous_dealer_team:
+		return get_teammate_index(previous_dealer_index)
+	for offset in range(1, players.size() + 1):
+		var candidate = (previous_dealer_index + offset) % players.size()
+		if players[candidate].team == next_dealer_team:
+			return candidate
+	return previous_dealer_index
+
+func get_teammate_index(player_id: int) -> int:
+	for player in players:
+		if player.player_id != player_id and player.team == players[player_id].team:
+			return player.player_id
+	return player_id
 
 func check_game_over() -> bool:
 	"""Check whether the game is over."""
