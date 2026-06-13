@@ -332,7 +332,7 @@ func finish_dealing():
 		print("Bid accepted. Dealer remains: ", players[dealer_index].player_name, " (player_id=", dealer_index, ")")
 
 	if ui_manager:
-		ui_manager.update_trump_suit(get_trump_display_name())
+		ui_manager.update_trump_suit(trump_suit)
 		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_display_name()], 2.0)
 
 	await get_tree().create_timer(2.0).timeout
@@ -638,7 +638,7 @@ func finish_bidding():
 		current_bid["team"] = players[dealer_index].team
 	
 	if ui_manager:
-		ui_manager.update_trump_suit(get_trump_display_name())
+		ui_manager.update_trump_suit(trump_suit)
 		ui_manager.show_center_message(GameConfig.text("team_bid_trump") % [get_team_name(current_bid["team"]), get_trump_display_name()], 2.0)
 	
 	await get_tree().create_timer(2.0).timeout
@@ -891,12 +891,12 @@ func start_playing_phase():
 
 func get_trump_symbol() -> String:
 	match trump_suit:
-		Card.Suit.NO_TRUMP: return "👑"
-		Card.Suit.SPADE: return "♠"
-		Card.Suit.HEART: return "♥"
-		Card.Suit.CLUB: return "♣"
-		Card.Suit.DIAMOND: return "♦"
-		Card.Suit.JOKER: return "👑"
+		Card.Suit.NO_TRUMP: return "No Trump"
+		Card.Suit.SPADE: return "S"
+		Card.Suit.HEART: return "H"
+		Card.Suit.CLUB: return "C"
+		Card.Suit.DIAMOND: return "D"
+		Card.Suit.JOKER: return "No Trump"
 		_: return "?"
 
 func get_trump_display_name() -> String:
@@ -1629,11 +1629,11 @@ func _update_void_tracking():
 		if lead_card.is_trump:
 			if not played_card.is_trump and not player_void_suits[pid].has(VOID_TRUMP):
 				player_void_suits[pid].append(VOID_TRUMP)
-				print("▶ ", players[pid].player_name, " is void in trump")
+				print("> ", players[pid].player_name, " is void in trump")
 		else:
 			if (played_card.is_trump or played_card.suit != lead_card.suit) and not player_void_suits[pid].has(lead_card.suit):
 				player_void_suits[pid].append(lead_card.suit)
-				print("▶ ", players[pid].player_name, " is void in suit ", lead_card.suit)
+				print("> ", players[pid].player_name, " is void in suit ", lead_card.suit)
 
 func _any_opponent_void(ai_player_id: int, suit_key) -> bool:
 	for i in range(4):

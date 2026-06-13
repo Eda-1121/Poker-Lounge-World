@@ -6,19 +6,27 @@ var ui_manager: CanvasLayer
 var background: ColorRect
 var felt_texture_layer: Node2D
 
+const LOBBY_ASSET_DIR = "res://assets/ui/lobby/"
+const TEX_SUIT_SPADE = LOBBY_ASSET_DIR + "suit_shadow_spade.png"
+const TEX_SUIT_CLUB = LOBBY_ASSET_DIR + "suit_shadow_club.png"
+const TEX_SUIT_DIAMOND = LOBBY_ASSET_DIR + "suit_shadow_diamond.png"
+
 func _ready():
 	get_window().title = GameConfig.text("shengji_title")
 	if not GameConfig.language_changed.is_connected(_on_language_changed):
 		GameConfig.language_changed.connect(_on_language_changed)
-	var window_size = get_target_window_size()
-	get_window().size = window_size
-	get_window().min_size = window_size
-	center_window(window_size)
+	var initial_size = get_viewport().get_visible_rect().size
+	if not is_web_build():
+		var window_size = get_target_window_size()
+		get_window().size = window_size
+		get_window().min_size = window_size
+		center_window(window_size)
+		initial_size = Vector2(window_size)
 	
 	background = ColorRect.new()
 	background.color = Color(0.027, 0.114, 0.090)
 	background.position = Vector2.ZERO
-	background.size = Vector2(window_size)
+	background.size = initial_size
 	background.z_index = -10
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
@@ -26,7 +34,7 @@ func _ready():
 	felt_texture_layer = Node2D.new()
 	felt_texture_layer.z_index = -9
 	add_child(felt_texture_layer)
-	build_felt_texture(window_size)
+	build_felt_texture(initial_size)
 	if not get_viewport().size_changed.is_connected(apply_layout):
 		get_viewport().size_changed.connect(apply_layout)
 
@@ -123,16 +131,17 @@ func build_felt_texture(viewport_size: Vector2):
 		felt_texture_layer.add_child(rect)
 
 	for item in [
-		[Vector2(viewport_size.x * 0.045, viewport_size.y * 0.84), "♠"],
-		[Vector2(viewport_size.x * 0.92, viewport_size.y * 0.08), "♣"],
-		[Vector2(viewport_size.x * 0.90, viewport_size.y * 0.82), "♦"],
+		[Vector2(viewport_size.x * 0.045, viewport_size.y * 0.84), TEX_SUIT_SPADE],
+		[Vector2(viewport_size.x * 0.92, viewport_size.y * 0.08), TEX_SUIT_CLUB],
+		[Vector2(viewport_size.x * 0.90, viewport_size.y * 0.82), TEX_SUIT_DIAMOND],
 	]:
-		var mark = Label.new()
-		mark.text = item[1]
+		var mark = TextureRect.new()
+		mark.texture = load(item[1])
 		mark.position = item[0]
-		mark.size = Vector2(90, 90)
-		mark.add_theme_font_size_override("font_size", 74)
-		mark.add_theme_color_override("font_color", Color(0.945, 0.768, 0.353, 0.10))
+		mark.size = Vector2(76, 76)
+		mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		mark.modulate = Color(1, 1, 1, 0.10)
 		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		felt_texture_layer.add_child(mark)
 
@@ -149,6 +158,9 @@ func center_window(window_size: Vector2i):
 	var screen = DisplayServer.window_get_current_screen()
 	var usable_rect = DisplayServer.screen_get_usable_rect(screen)
 	get_window().position = usable_rect.position + (usable_rect.size - window_size) / 2
+
+func is_web_build() -> bool:
+	return OS.has_feature("web")
 
 func _input(event):
 	if event is InputEventKey and event.pressed:

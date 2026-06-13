@@ -4,6 +4,7 @@ var info_panel: Panel
 var level_label: Label
 var mode_label: Label
 var trump_label: Label
+var trump_icon: TextureRect
 
 var team1_score_label: Label
 var team2_score_label: Label
@@ -26,7 +27,6 @@ var selected_count_label: Label
 var player_avatars: Array[Panel] = []
 var player_name_labels: Array[Label] = []
 var player_team_labels: Array[Label] = []
-var player_card_count_labels: Array[Label] = []
 
 var bidding_ui: Node
 var game_over_ui: Node
@@ -36,7 +36,7 @@ var last_trick_label: Label
 var last_trick_button: Button
 var last_trick_visible: bool = false
 var _current_level: int = 2
-var _current_trump_symbol: String = "♠"
+var _current_trump_suit: int = Card.Suit.SPADE
 var _current_mode_text: String = ""
 var _team1_score: int = 0
 var _team2_score: int = 0
@@ -64,6 +64,11 @@ const ACTION_PANEL_WIDTH = 300.0
 const ACTION_PANEL_HEIGHT = 122.0
 const ACTION_BUTTON_WIDTH = 220.0
 const ACTION_BUTTON_HEIGHT = 52.0
+const LOBBY_ASSET_DIR = "res://assets/ui/lobby/"
+const TEX_SUIT_SPADE = LOBBY_ASSET_DIR + "suit_shadow_spade.png"
+const TEX_SUIT_HEART = LOBBY_ASSET_DIR + "suit_shadow_heart.png"
+const TEX_SUIT_CLUB = LOBBY_ASSET_DIR + "suit_shadow_club.png"
+const TEX_SUIT_DIAMOND = LOBBY_ASSET_DIR + "suit_shadow_diamond.png"
 
 func _ready():
 	layer = 1
@@ -145,11 +150,25 @@ func create_ui():
 	mode_label.add_theme_color_override("font_color", Color(C_PAPER, 0.86))
 	info_container.add_child(mode_label)
 
+	var trump_row = HBoxContainer.new()
+	trump_row.custom_minimum_size = Vector2(242, 24)
+	trump_row.add_theme_constant_override("separation", 6)
+	info_container.add_child(trump_row)
+
 	trump_label = Label.new()
-	trump_label.text = GameConfig.text("trump_suit") % "♠"
+	trump_label.text = _trump_label_prefix()
 	trump_label.add_theme_font_size_override("font_size", 18)
 	trump_label.add_theme_color_override("font_color", Color(C_CYAN, 0.96))
-	info_container.add_child(trump_label)
+	trump_row.add_child(trump_label)
+
+	trump_icon = TextureRect.new()
+	trump_icon.custom_minimum_size = Vector2(20, 20)
+	trump_icon.size = Vector2(20, 20)
+	trump_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	trump_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	trump_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	trump_row.add_child(trump_icon)
+	update_trump_suit(_current_trump_suit)
 
 	var separator1 = HSeparator.new()
 	separator1.custom_minimum_size = Vector2(222, 2)
@@ -353,8 +372,8 @@ func create_player_avatars():
 		player_name_labels.append(name_label)
 
 		var status_label = Label.new()
-		status_label.position = Vector2(12, 36)
-		status_label.size = Vector2(76, 20)
+		status_label.position = Vector2(10, 36)
+		status_label.size = Vector2(134, 20)
 		status_label.text = GameConfig.text("team_a") if i % 2 == 0 else GameConfig.text("team_b")
 		status_label.add_theme_font_size_override("font_size", 13)
 		status_label.add_theme_color_override("font_color",
@@ -363,17 +382,6 @@ func create_player_avatars():
 		status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		avatar_panel.add_child(status_label)
 		player_team_labels.append(status_label)
-
-		var count_label = Label.new()
-		count_label.position = Vector2(88, 36)
-		count_label.size = Vector2(56, 20)
-		count_label.text = "🂠 --"
-		count_label.add_theme_font_size_override("font_size", 13)
-		count_label.add_theme_color_override("font_color", Color(C_GOLD, 0.80))
-		count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		avatar_panel.add_child(count_label)
-		player_card_count_labels.append(count_label)
 
 func apply_layout():
 	var viewport_size = get_viewport().get_visible_rect().size
@@ -442,9 +450,42 @@ func get_mode_display_text() -> String:
 	var key = "shengji_mode_hard" if GameConfig.get_shengji_mode() == GameConfig.SHENGJI_MODE_HARD else "shengji_mode_easy"
 	return GameConfig.text(key) % GameConfig.num_decks
 
-func update_trump_suit(suit_symbol: String):
-	_current_trump_symbol = suit_symbol
-	trump_label.text = GameConfig.text("trump_suit") % suit_symbol
+func update_trump_suit(suit):
+	if typeof(suit) == TYPE_STRING:
+		trump_label.text = GameConfig.text("trump_suit") % suit
+		trump_icon.visible = false
+		return
+	if typeof(suit) == TYPE_INT:
+		_current_trump_suit = suit
+	var icon_path = _get_suit_icon_path(_current_trump_suit)
+	if icon_path != "":
+		trump_label.text = _trump_label_prefix()
+		trump_icon.texture = load(icon_path)
+		trump_icon.visible = true
+	else:
+		trump_label.text = GameConfig.text("trump_suit") % _get_suit_display_name(_current_trump_suit)
+		trump_icon.visible = false
+
+func _trump_label_prefix() -> String:
+	return GameConfig.text("trump_suit").replace("%s", "").strip_edges()
+
+func _get_suit_icon_path(suit: int) -> String:
+	match suit:
+		Card.Suit.SPADE: return TEX_SUIT_SPADE
+		Card.Suit.HEART: return TEX_SUIT_HEART
+		Card.Suit.CLUB: return TEX_SUIT_CLUB
+		Card.Suit.DIAMOND: return TEX_SUIT_DIAMOND
+		_: return ""
+
+func _get_suit_display_name(suit: int) -> String:
+	match suit:
+		Card.Suit.NO_TRUMP: return GameConfig.text("suit_no_trump")
+		Card.Suit.SPADE: return GameConfig.text("suit_spade")
+		Card.Suit.HEART: return GameConfig.text("suit_heart")
+		Card.Suit.CLUB: return GameConfig.text("suit_club")
+		Card.Suit.DIAMOND: return GameConfig.text("suit_diamond")
+		Card.Suit.JOKER: return GameConfig.text("suit_no_trump")
+		_: return "?"
 
 func update_team_scores(team1_score: int, team2_score: int):
 	var old_team1 = _team1_score
@@ -557,9 +598,8 @@ func update_action_hint():
 	elif play_button:
 		action_hint_label.text = GameConfig.text("action_hint_ready_play") if not play_button.disabled else GameConfig.text("action_hint_select_play")
 
-func update_player_card_count(player_id: int, count: int):
-	if player_id < player_card_count_labels.size():
-		player_card_count_labels[player_id].text = "🂠 %d" % count
+func update_player_card_count(_player_id: int, _count: int):
+	pass
 
 func update_last_trick(summary: Array):
 	if summary.is_empty():
@@ -585,7 +625,7 @@ func _on_language_changed(_language: String):
 	if mode_label:
 		update_game_mode()
 	if trump_label:
-		update_trump_suit(_current_trump_symbol)
+		update_trump_suit(_current_trump_suit)
 	if team1_score_label and team2_score_label:
 		update_team_scores(_team1_score, _team2_score)
 	if selected_count_label:

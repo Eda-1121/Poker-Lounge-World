@@ -55,7 +55,7 @@ const GAMES = [
 		"name_key": "game_shengji_name",
 		"sub_key": "game_shengji_sub",
 		"desc_key": "game_shengji_desc",
-		"icon": "♠ ♥",
+		"icons": [TEX_SHADOW_SPADE, TEX_SHADOW_HEART],
 		"scene": "res://scenes/shengji/main.tscn",
 		"available": true,
 		"has_help": true,
@@ -67,7 +67,7 @@ const GAMES = [
 		"name_key": "game_hearts_name",
 		"sub_key": "game_hearts_sub",
 		"desc_key": "game_hearts_desc",
-		"icon": "♥",
+		"icons": [TEX_SHADOW_HEART],
 		"scene": "",
 		"available": false,
 		"preview": ["heart_12", "heart_03", "heart_08", "heart_11", "big_joker"],
@@ -77,7 +77,7 @@ const GAMES = [
 		"name_key": "game_bridge_name",
 		"sub_key": "game_bridge_sub",
 		"desc_key": "game_bridge_desc",
-		"icon": "♣",
+		"icons": [TEX_SHADOW_CLUB],
 		"scene": "",
 		"available": false,
 		"preview": ["spade_14", "heart_13", "diamond_12", "club_11", "big_joker"],
@@ -87,7 +87,7 @@ const GAMES = [
 		"name_key": "game_poker_name",
 		"sub_key": "game_poker_sub",
 		"desc_key": "game_poker_desc",
-		"icon": "♦",
+		"icons": [TEX_SHADOW_DIAMOND],
 		"scene": "",
 		"available": false,
 		"preview": ["diamond_14", "club_13", "heart_12", "club_11", "big_joker"],
@@ -109,10 +109,11 @@ var _ui_font: Font
 
 func _ready():
 	_load_lobby_fonts()
-	var window_size = get_target_window_size()
-	get_window().size = window_size
-	get_window().min_size = Vector2i(1280, 720)
-	center_window(window_size)
+	if not is_web_build():
+		var window_size = get_target_window_size()
+		get_window().size = window_size
+		get_window().min_size = Vector2i(1280, 720)
+		center_window(window_size)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if not GameConfig.language_changed.is_connected(_on_language_changed):
@@ -128,13 +129,14 @@ func _build():
 	var vp = get_viewport_rect().size
 	_sw = vp.x
 	_sh = vp.y
-	_content_w = clamp(_sw * 0.84, 1080.0, 1360.0)
-	_card_gap = clamp(_sw * 0.018, 28.0, 40.0)
-	_selected_w = clamp(_content_w * 0.225, 278.0, 320.0)
-	_normal_w = clamp((_content_w - _selected_w - _card_gap * 3.0) / 3.0, 250.0, 300.0)
-	_selected_h = clamp(_sh * 0.50, 390.0, 500.0)
-	_normal_h = clamp(_selected_h * 0.89, 352.0, 440.0)
-	_card_y = clamp(_sh * 0.255, 188.0, 228.0)
+	var content_ratio = 0.94 if _sw < 1280.0 else 0.84
+	_content_w = clamp(_sw * content_ratio, min(760.0, _sw * 0.96), 1360.0)
+	_card_gap = clamp(_sw * 0.014, 14.0, 40.0)
+	_selected_w = clamp(_content_w * 0.24, 210.0, 320.0)
+	_normal_w = clamp((_content_w - _selected_w - _card_gap * 3.0) / 3.0, 170.0, 300.0)
+	_selected_h = clamp(_sh * 0.50, 320.0, 500.0)
+	_normal_h = clamp(_selected_h * 0.89, 286.0, 440.0)
+	_card_y = clamp(_sh * 0.255, 140.0, 228.0)
 
 	_build_background()
 	_build_decorations()
@@ -226,7 +228,7 @@ func _build_header():
 func _build_stats():
 	var total_plays = GameConfig.total_plays
 	var wins_count = GameConfig.wins
-	var win_rate_str = "—"
+	var win_rate_str = "-"
 	if total_plays > 0:
 		win_rate_str = "%d%%" % int(float(wins_count) / float(total_plays) * 100.0)
 
@@ -313,16 +315,7 @@ func _add_game_card_content(panel: Panel, game: Dictionary, size: Vector2, selec
 	var action_y = size.y - 104.0 if selected else size.y - 64.0
 	var help_y = size.y - 54.0
 
-	var icon = Label.new()
-	icon.text = game["icon"]
-	icon.position = Vector2(0, 24)
-	icon.size = Vector2(size.x, 32)
-	icon.add_theme_font_size_override("font_size", 24)
-	icon.add_theme_color_override("font_color", accent if selected else Color(accent, 0.95))
-	_apply_ui_font(icon)
-	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(icon)
+	_add_game_icon_row(panel, game.get("icons", []), size.x, selected)
 
 	var title = Label.new()
 	title.text = GameConfig.text(game["name_key"])
@@ -396,13 +389,38 @@ func _add_card_preview(parent: Control, card_names: Array, center: Vector2, sele
 			rect.texture = tex
 		parent.add_child(rect)
 
+func _add_game_icon_row(parent: Control, icon_paths: Array, width: float, selected: bool):
+	if icon_paths.is_empty():
+		return
+	var icon_size = 28.0 if selected else 24.0
+	var gap = 8.0
+	var total_w = icon_paths.size() * icon_size + max(0, icon_paths.size() - 1) * gap
+	var row = HBoxContainer.new()
+	row.position = Vector2((width - total_w) * 0.5, 24)
+	row.size = Vector2(total_w, icon_size)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", int(gap))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(row)
+
+	for path in icon_paths:
+		var icon = TextureRect.new()
+		icon.custom_minimum_size = Vector2(icon_size, icon_size)
+		icon.size = Vector2(icon_size, icon_size)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture = _load_png_texture_for_size(path, Vector2i(icon_size, icon_size))
+		icon.modulate = Color(1, 1, 1, 0.96)
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(icon)
+
 func _add_deck_selector(parent: Control, game: Dictionary, pos: Vector2):
 	var opts: Array = game["deck_options"]
 	var buttons: Array[Button] = []
 	var x = pos.x
 	for opt in opts:
 		var btn = Button.new()
-		btn.text = "×%d" % opt
+		btn.text = "x%d" % opt
 		btn.position = Vector2(x, pos.y)
 		btn.size = Vector2(78, 28)
 		btn.add_theme_font_size_override("font_size", 18)
@@ -429,7 +447,7 @@ func _add_deck_selector(parent: Control, game: Dictionary, pos: Vector2):
 
 func _add_primary_game_button(parent: Control, text: String, pos: Vector2, size: Vector2, scene_path: String):
 	var btn = Button.new()
-	btn.text = "▶  %s" % text
+	btn.text = "%s" % text
 	btn.position = pos
 	btn.size = size
 	btn.add_theme_font_size_override("font_size", 24)
@@ -443,7 +461,7 @@ func _add_primary_game_button(parent: Control, text: String, pos: Vector2, size:
 
 func _add_help_button(parent: Control, pos: Vector2, size: Vector2):
 	var btn = Button.new()
-	btn.text = "▣  %s" % GameConfig.text("how_to_play")
+	btn.text = "%s" % GameConfig.text("how_to_play")
 	btn.position = pos
 	btn.size = size
 	btn.add_theme_font_size_override("font_size", 16)
@@ -532,8 +550,8 @@ func _build_footer():
 	var gap = 30.0
 	var x = (_sw - btn_w * 2.0 - gap) * 0.5
 	var y = _sh - 70.0
-	_add_footer_button("⚙  %s" % GameConfig.text("settings"), Vector2(x, y), Vector2(btn_w, btn_h), C_BLUE, _on_settings_pressed)
-	_add_footer_button("↪  %s" % GameConfig.text("quit"), Vector2(x + btn_w + gap, y), Vector2(btn_w, btn_h), C_RED, _on_quit_pressed)
+	_add_footer_button("%s" % GameConfig.text("settings"), Vector2(x, y), Vector2(btn_w, btn_h), C_BLUE, _on_settings_pressed)
+	_add_footer_button("%s" % GameConfig.text("quit"), Vector2(x + btn_w + gap, y), Vector2(btn_w, btn_h), C_RED, _on_quit_pressed)
 
 func _add_footer_button(text: String, pos: Vector2, size: Vector2, accent: Color, callback: Callable):
 	var btn = Button.new()
@@ -690,3 +708,6 @@ func center_window(window_size: Vector2i):
 	var screen = DisplayServer.window_get_current_screen()
 	var usable_rect = DisplayServer.screen_get_usable_rect(screen)
 	get_window().position = usable_rect.position + (usable_rect.size - window_size) / 2
+
+func is_web_build() -> bool:
+	return OS.has_feature("web")

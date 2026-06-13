@@ -171,7 +171,7 @@ func get_card_name() -> String:
 	return "%s_%02d" % [suit_names[suit], rank]
 
 func get_display_name() -> String:
-	var suit_labels = ["♠", "♥", "♣", "♦", "Joker"]
+	var suit_labels = ["S", "H", "C", "D", "Joker"]
 	var rank_labels = {
 		2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8",
 		9: "9", 10: "10", 11: "J", 12: "Q", 13: "K", 14: "A",
